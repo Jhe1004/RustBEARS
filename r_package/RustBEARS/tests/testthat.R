@@ -1,3 +1,3 @@
 library(testthat)
 library(RustBEARS)
-test_dir(path="testthat")
+test_check("RustBEARS")

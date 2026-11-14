@@ -29,7 +29,7 @@ bibentry(
   title   = "RustBEARS: Unified Rust Computational Engine for Probabilistic Historical Biogeography",
   author  = person("Jian", "He"),
   year    = "2026",
-  note    = "R and Python software package version 1.1.4",
+  note    = "Development snapshot: R 1.2.0.9000; Python 1.2.0.dev0. Report the source commit with this citation.",
   url     = "https://github.com/Jhe1004/RustBEARS"
 )
 

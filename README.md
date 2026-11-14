@@ -1,5 +1,23 @@
 # RustBEARS
 
+The `v1.2` branch is a development release (Python `1.2.0.dev0`, R
+`1.2.0.9000`). It adds explicit probability contracts, prepared simulation,
+profile intervals, parametric bootstrap tests, conditional model/tree summaries,
+and mapping precision diagnostics. New workflows support the validated single-layer
+six standard model families and distance/manual dispersal modifiers. Time-stratified,
+fossil-hook and trait-coupled uncertainty workflows remain explicitly disabled.
+
+R now defaults to `StrictF64`; request `options(RustBEARS.precision="LegacyF32")`
+for historical arithmetic. Contract C retains the historical score; A conditions
+on nonempty tips and B completes empty-state transmission. Historical scores do
+not silently become normalized generating models.
+
+Read the [implementation contract](docs/v1.2-implementation-contract.md),
+[Python tutorial](docs/uncertainty-workflow-python.en.md), and
+[Chinese Python tutorial](docs/uncertainty-workflow-python.md). Development checks
+are separate from the planned large calibration study: neither a working example
+nor a CI configuration establishes a completed publication validation.
+
 [![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](LICENSE)
 [![Rust Core](https://img.shields.io/badge/Rust-1.82%2B-orange.svg)](rust/Cargo.toml)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](pyproject.toml)

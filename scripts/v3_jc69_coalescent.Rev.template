@@ -1,0 +1,36 @@
+# V3 molecular-only posterior. Geography and true-tree files are never read.
+# Adapted model declarations follow the official RevBayes coalescent tutorial:
+# https://revbayes.github.io/tutorials/coalescent/Constant
+seed(@SEED32@)
+data <- readDiscreteCharacterData("@ALIGNMENT@")
+taxa <- data.taxa()
+n_taxa <- data.ntaxa()
+moves = VectorMoves()
+monitors = VectorMonitors()
+population ~ dnExponential(0.1)
+population.setValue(5.0)
+moves.append(mvScale(population, lambda=0.5, tune=true, weight=2.0))
+phylogeny ~ dnCoalescent(theta=population, taxa=taxa)
+root_age := phylogeny.rootAge()
+tree_length := phylogeny.treeLength()
+moves.append(mvNarrow(phylogeny, weight=n_taxa))
+moves.append(mvNNI(phylogeny, weight=n_taxa))
+moves.append(mvFNPR(phylogeny, weight=n_taxa/4.0))
+moves.append(mvSubtreeScale(phylogeny, weight=n_taxa/5.0))
+moves.append(mvNodeTimeSlideUniform(phylogeny, weight=n_taxa))
+moves.append(mvRootTimeScaleBactrian(phylogeny, weight=n_taxa/5.0))
+moves.append(mvTreeScale(phylogeny, weight=n_taxa/5.0))
+Q := fnJC(4)
+clock <- @CLOCK_RATE@
+sequence ~ dnPhyloCTMC(tree=phylogeny, Q=Q, branchRates=clock, type="DNA")
+sequence.clamp(data)
+analysis_model = model(phylogeny)
+monitors.append(mnModel(filename="@PREFIX@.log", printgen=@SAMPLE_EVERY@))
+# JSON tree serialization retains 15 decimal places in RevBayes 1.4.2;
+# ordinary Newick monitor output uses only six, independent of outputPrecision.
+monitors.append(mnFile(filename="@PREFIX@.trees.jsonl", printgen=@SAMPLE_EVERY@, format="json", phylogeny))
+analysis = mcmc(analysis_model, monitors, moves)
+analysis.burnin(generations=@WARMUP@, tuningInterval=200)
+analysis.run(generations=@GENERATIONS@)
+analysis.operatorSummary()
+q()

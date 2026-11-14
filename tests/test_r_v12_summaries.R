@@ -1,0 +1,107 @@
+suppressPackageStartupMessages(library(RustBEARS))
+options(RustBEARS.precision='StrictF64',RustBEARS.threads=1L)
+folder<-tempfile('rustbears-r-summaries-');dir.create(folder)
+tree<-'((T1:1,T2:1):1,(T3:1,T4:1):1);'
+rotated<-'((T4:1,T3:1):1,(T2:1,T1:1):1);'
+different<-'((T1:1,T3:1):1,(T2:1,T4:1):1);'
+writeLines(tree,file.path(folder,'tree.newick'))
+writeLines(c('4 2 (A B)','T1 10','T2 10','T3 01','T4 01'),file.path(folder,'geog.data'))
+x<-define_BioGeoBEARS_run(trfn=file.path(folder,'tree.newick'),geogfn=file.path(folder,'geog.data'),
+    max_range_size=2,print_optim=FALSE,printlevel=-1,tmpwd=folder,calc_ancprobs=TRUE)
+x$likelihood_conditioning<-'tip_survival';x$num_cores_to_use<-1L
+for(k in c('d','e')) {
+    x$BioGeoBEARS_model_object@params_table[k,c('init','est')]<-c(d=.2,e=.1)[k]
+    x$BioGeoBEARS_model_object@params_table[k,'type']<-'fixed'
+}
+x<-readfiles_BioGeoBEARS_run(x);x$wd<-folder
+fit<-NULL;invisible(capture.output(fit<-bears_optim_run(x,skip_optim=TRUE,skip_optim_option='return_all')))
+second<-fit;second$outputs@params_table['d',c('init','est')]<-.3
+second<-RustBEARS:::.bgb_u_refit(second,optimize=FALSE)
+avg<-model_average(list(first=fit,second=second),criterion='AIC',num_maps=40L)
+stopifnot(abs(sum(avg$weights)-1)<1e-15,avg$joint_bsm$num_maps==40L)
+expected<-avg$weights[1]*fit$ML_marginal_prob_each_state_at_branch_top_AT_node+
+    avg$weights[2]*second$ML_marginal_prob_each_state_at_branch_top_AT_node
+stopifnot(max(abs(expected-avg$ancestral_probs_branch_top))<1e-14)
+diag<-bsm_diagnostics(avg$joint_bsm,min_mean_count=0)
+stopifnot(diag$sampling_design=='model_stratified',diag$tree_target=='fixed_sample',diag$stop_reason=='fixed_count')
+stopifnot(inherits(try(bsm_diagnostics(avg$joint_bsm,tree_target='posterior_population'),silent=TRUE),'try-error'))
+native<-runBSM(fit,NULL,bsm_engine='native_whole_tree',seedval=12345,nummaps_goal=40L)
+adaptive<-runBSM(fit,NULL,bsm_engine='native_whole_tree',seedval=12345,target_rmcse=1e-9,
+    min_maps=20L,batch_size=20L,max_maps=40L,min_mean_count=.1)
+stopifnot(identical(native$clado_events_df,adaptive$clado_events_df),identical(native$ana_events_df,adaptive$ana_events_df),
+    adaptive$stop_reason=='max_maps_reached')
+multi<-fit_over_trees(x,rep(c(tree,rotated),5L),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='full_cold_start',cold_start_audit_fraction=0,
+    bsm_maps_per_tree=8L,checkpoint_file=file.path(folder,'multitree.checkpoint'))
+stopifnot(multi$n_trees_completed==10L,max(abs(multi$complete_case_probs_top-
+    fit$ML_marginal_prob_each_state_at_branch_top_AT_node))<1e-14,max(multi$cross_tree_prob_sd_top)<1e-14)
+resume<-fit_over_trees(x,rep(c(tree,rotated),5L),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='full_cold_start',cold_start_audit_fraction=0,
+    bsm_maps_per_tree=8L,checkpoint_file=file.path(folder,'multitree.checkpoint'))
+stopifnot(identical(resume$complete_case_probs_top,multi$complete_case_probs_top),identical(resume$joint_bsm,multi$joint_bsm))
+stopifnot(inherits(try(fit_over_trees(x,rep(c(tree,rotated),5L),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='full_cold_start',cold_start_audit_fraction=0,
+    bsm_maps_per_tree=10L,checkpoint_file=file.path(folder,'multitree.checkpoint')),silent=TRUE),'try-error'))
+nonmono<-fit_over_trees(x,c(tree,different),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',match_mode='monophyletic')
+mrca<-fit_over_trees(x,c(tree,different),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',match_mode='mrca')
+stopifnot(any(nonmono$clade_support_all_trees==.5),all(nonmono$clade_complete_trees_count==c(2,2,2,2,2,1,1)),
+    all(mrca$clade_complete_trees_count==2),all(mrca$mean_mrca_excess_tips[c(6,7)]==1))
+# Failure injection isolates the entire tree even when one model succeeded.
+oldfit<-RustBEARS:::.bgb_u_fit_tree
+counter<-0L
+broken<-function(...) {counter<<-counter+1L;if(counter %in% c(3L,4L))stop('injected fit failure');oldfit(...)}
+assignInNamespace('.bgb_u_fit_tree',broken,ns='RustBEARS')
+failed<-fit_over_trees(x,rep(tree,3L),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='full_cold_start',
+    cold_start_audit_fraction=0,on_excess_failure='conservative_bounds')
+assignInNamespace('.bgb_u_fit_tree',oldfit,ns='RustBEARS')
+stopifnot(failed$n_trees_incomplete==1L,all(abs(failed$prob_failure_bounds_top$upper-
+    failed$prob_failure_bounds_top$lower-1/3)<1e-15))
+# Complete artifacts survive checkpoint round trips, including individual fits.
+saved<-readRDS(file.path(folder,'multitree.checkpoint'))
+stopifnot(length(saved$records[['1']]$fits)==1L,
+    is.matrix(saved$records[['1']]$fits[[1]]$ML_marginal_prob_each_state_at_branch_top_AT_node))
+meta<-multi$joint_bsm$map_metadata_df
+stopifnot(identical(meta$map,as.double(seq_len(80))),all(meta$map_id==rep(1:8,10)),
+    all(tapply(meta$stratum_weight,meta$tree_id,unique)==.1))
+allbroken<-function(...)stop('injected total fit failure')
+assignInNamespace('.bgb_u_fit_tree',allbroken,ns='RustBEARS')
+allfailed<-fit_over_trees(x,rep(tree,2L),models=list(fixed=x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='fixed_ref_params',
+    cold_start_audit_fraction=0,on_excess_failure='conservative_bounds')
+assignInNamespace('.bgb_u_fit_tree',oldfit,ns='RustBEARS')
+stopifnot(allfailed$n_trees_completed==0L,all(is.na(allfailed$complete_case_probs_top)),
+    all(allfailed$prob_failure_bounds_top$lower==0),all(allfailed$prob_failure_bounds_top$upper==1),
+    all(is.na(allfailed$model_winner_freq)),all(is.na(allfailed$prob_failure_bounds_bottom$lower[5,])))
+# A failure in just one candidate excludes the whole tree, retaining its successful fit for audit.
+second_definition<-x$BioGeoBEARS_model_object
+second_definition@params_table['d',c('init','est')]<-.3
+counter<-0L
+broken<-function(...) {counter<<-counter+1L;if(counter %in% c(2L,3L))stop('candidate failure');oldfit(...)}
+assignInNamespace('.bgb_u_fit_tree',broken,ns='RustBEARS')
+partial<-fit_over_trees(x,rep(tree,2L),models=list(first=x$BioGeoBEARS_model_object,second=second_definition),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='full_cold_start',
+    cold_start_audit_fraction=0,on_excess_failure='conservative_bounds',bsm_maps_per_tree=8L)
+assignInNamespace('.bgb_u_fit_tree',oldfit,ns='RustBEARS')
+stopifnot(partial$n_trees_incomplete==1L,all(partial$per_tree_df$tree_status[1:2]=='incomplete_model_set'),
+    all(is.na(partial$per_tree_df$weight[1:2])),partial$joint_bsm$n_trees_missing==1L,
+    all(abs(partial$prob_failure_bounds_top$upper-partial$prob_failure_bounds_top$lower-.5)<1e-15))
+stopifnot(inherits(try(bsm_diagnostics(partial$joint_bsm,tree_target='posterior_population',
+    tree_dependence='independent'),silent=TRUE),'try-error'))
+zero<-native;zero$areas<-'A';zero$num_maps<-2L
+zero$clado_events_df<-zero$clado_events_df[0,,drop=FALSE];zero$ana_events_df<-zero$ana_events_df[0,,drop=FALSE]
+zero$strata<-NULL;zero$map_metadata_df<-NULL
+zd<-bsm_diagnostics(zero,min_mean_count=0)
+stopifnot(nrow(zd$route_summary_df)==0L,all(zd$event_summary_df$assessment=='not_assessed'),
+    all(is.na(zd$event_summary_df$mean_mc_ci_lower)),!zd$precision_target_met)
+status<-RustBEARS:::.bgb_u_rank_status
+stopifnot(status(-.25,.25,.25)=='near_tie',status(.26,.4,.25)=='resolved',
+    status(-.4,-.26,.25)=='resolved',status(.25,.4,.25)=='unresolved',status(-.1,.4,.25)=='unresolved')
+stopifnot(is.na(RustBEARS:::.bgb_u_ips(rep(1,20))$ess))
+strata<-data.frame(tree_id=c(1L,1L),model_id=1:2,stratum_weight=c(.75,.25));strata$map_ids<-list(1:2,3:4)
+scalar<-RustBEARS:::.bgb_u_scalar_summary(c(0,2,2,4),strata,'fixed_sample',NULL,.05)
+stopifnot(abs(scalar$mean-1.5)<1e-15,abs(scalar$var_within-2)<1e-15,
+    abs(scalar$mapping_mcse-sqrt(.625))<1e-15)
+cat('R_V12_SUMMARIES_PASS\n')

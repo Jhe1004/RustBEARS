@@ -85,8 +85,8 @@
            any(x$phy$edge.length<x$min_branchlength)||is.null(prep$model))
             stop('UnsupportedModelContractError: contract A/B currently requires a single-layer unmasked binary tree without hooks or fixed nodes')
         weights<-prep$model$parameters
-        if(abs(weights[1]-weights[2])>1e-12||abs(weights[1]-weights[4])>1e-12)
-            stop('UnsupportedModelContractError: Tier-1a supports DEC and DEC+J only')
+        if(!.bgb_v12_standard_clado(weights))
+            stop('UnsupportedModelContractError: only the six standard cladogenesis models are validated')
     }
     if(!is.null(root_spec)||contract!=0L) {
         states<-x$spPmat_inputs$l

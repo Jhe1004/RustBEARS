@@ -17,6 +17,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
+#include <inttypes.h>
 #ifndef _WIN32
 #include <dlfcn.h>
 #endif
@@ -212,9 +214,23 @@ static uint64_t exact_uint(SEXP value,const char *name,double low,double high){
  if(!R_FINITE(x)||x!=floor(x)||x<low||x>high)Rf_error("invalid %s",name);
  return (uint64_t)x;
 }
+static uint64_t exact_seed(SEXP value){
+ if(TYPEOF(value)==STRSXP && XLENGTH(value)==1 && STRING_ELT(value,0)!=NA_STRING){
+  const char *s=CHAR(STRING_ELT(value,0));
+  if(!*s||*s=='-'||*s=='+'||*s==' '||*s=='\t')Rf_error("invalid seed");
+  int base=(s[0]=='0'&&(s[1]=='x'||s[1]=='X'))?16:10;
+  char *end;errno=0;unsigned long long x=strtoull(s,&end,base);
+  if(errno==ERANGE||end==s||*end)Rf_error("seed must be an exact uint64 decimal or hexadecimal string");
+  return (uint64_t)x;
+ }
+ return exact_uint(value,"seed",0,9007199254740991.0);
+}
+static SEXP c_bgb_seed_decimal(SEXP value){
+ char text[32];snprintf(text,sizeof(text),"%" PRIu64,exact_seed(value));return Rf_mkString(text);
+}
 static SEXP c_bgb_sampler_prepare(SEXP args,SEXP roots,SEXP condition){
  int code=Rf_asInteger(condition);
- if(code<0||code>2)Rf_error("invalid simulation conditioning");
+ if(code<0||(code>2&&code!=4))Rf_error("invalid simulation conditioning");
  const double **p;size_t *lens;SEXP keep;numeric_buffers(args,&p,&lens,&keep);
  SEXP weights=PROTECT(Rf_coerceVector(roots,REALSXP));
  SEXP ptr=PROTECT(R_MakeExternalPtr(NULL,Rf_install("bgb_v12_sampler"),R_NilValue));
@@ -233,7 +249,7 @@ static SEXP checked_sampler_reply(Reply *reply){
 }
 static SEXP c_bgb_sampler_draw(SEXP ptr,SEXP start,SEXP count,SEXP seed,SEXP threads,SEXP rejection){
  SamplerHandle *sampler=checked_sampler(ptr);
- uint64_t first=exact_uint(start,"start",1,9007199254740991.0), s=exact_uint(seed,"seed",0,9007199254740991.0);
+ uint64_t first=exact_uint(start,"start",1,9007199254740991.0), s=exact_seed(seed);
  size_t n=(size_t)exact_uint(count,"num_maps",1,1000000), nth=(size_t)exact_uint(threads,"num_threads",1,256);
  int r=Rf_asInteger(rejection);if(r<0||r>1)Rf_error("invalid rejection mode");
  int blas_threads=blas_enter();
@@ -242,7 +258,7 @@ static SEXP c_bgb_sampler_draw(SEXP ptr,SEXP start,SEXP count,SEXP seed,SEXP thr
 }
 static SEXP c_bgb_sampler_simulate(SEXP ptr,SEXP start,SEXP count,SEXP seed,SEXP threads){
  SamplerHandle *sampler=checked_sampler(ptr);
- uint64_t first=exact_uint(start,"start",1,9007199254740991.0), s=exact_uint(seed,"seed",0,9007199254740991.0);
+ uint64_t first=exact_uint(start,"start",1,9007199254740991.0), s=exact_seed(seed);
  size_t n=(size_t)exact_uint(count,"n_reps",1,1000000), nth=(size_t)exact_uint(threads,"num_threads",1,256);
  int blas_threads=blas_enter();
  Reply *reply=bgb_sampler_simulate_tips(sampler,first,n,s,nth);
@@ -321,6 +337,7 @@ static SEXP c_bgb_bsm_products(SEXP a,SEXP l,SEXP r,SEXP w) {
 }
 
 static const R_CallMethodDef entries[]={
+ {"c_bgb_seed_decimal",(DL_FUNC)&c_bgb_seed_decimal,1},
  {"c_bgb_tree_contract",(DL_FUNC)&c_bgb_tree_contract,7},
  {"c_bgb_sampler_prepare",(DL_FUNC)&c_bgb_sampler_prepare,3},
  {"c_bgb_sampler_draw",(DL_FUNC)&c_bgb_sampler_draw,6},

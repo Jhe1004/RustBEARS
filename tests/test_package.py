@@ -14,7 +14,7 @@ GEOG = {"A": "10", "B": "10", "C": "01"}
 
 class PackageTests(unittest.TestCase):
     def test_alias_module_parity(self):
-        self.assertEqual(b.__version__, "1.1.4")
+        self.assertEqual(b.__version__, "1.2.0.dev0")
         self.assertIs(b.RustBEARS, b.BioGeoBEARS)
 
     def test_tree_order_and_fossil(self):

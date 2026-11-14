@@ -103,6 +103,12 @@ class RootPriorSpec:
             array.setflags(write=False)
         return likelihood, sampling, log_scale
 
+    def __reduce__(self):
+        # MappingProxyType freezes inputs but cannot itself be pickled. Tasks
+        # serialize a plain private copy and rebuild the frozen specification.
+        weights = dict(self.custom_weights) if isinstance(self.custom_weights, Mapping) else self.custom_weights
+        return (type(self), (self.mode, weights))
+
 
 def resolve_simulation_conditioning(contract, requested):
     if requested == "from_model":

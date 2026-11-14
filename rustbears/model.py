@@ -98,14 +98,14 @@ def model_template(name):
     display=name.upper().replace(" ","")
     parts=display.split("+")
     base=parts[0]
-    if base not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X"}:
+    if base not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X","W"}:
         raise ValueError(f"unknown model {name}")
     categories={"DEC":3,"DIVALIKE":2,"BAYAREALIKE":1}[base]
     p = {
         "d":Parameter("free",.01,1e-12,5), "e":Parameter("free",.01,1e-12,5),
         "a":Parameter("fixed",0,1e-12,5), "b":Parameter("fixed",1,1e-12,1),
         "x":Parameter("free" if "X" in parts else "fixed",0,-2.5,2.5),
-        "n":Parameter("fixed",0,-10,10), "w":Parameter("fixed",1,-10,10),
+        "n":Parameter("fixed",0,-10,10), "w":Parameter("free" if "W" in parts else "fixed",1,-10,10),
         "u":Parameter("fixed",0,-10,10),
         "j":Parameter("free" if "J" in parts else "fixed",.01 if "J" in parts else 0,1e-5,categories-1e-5),
         "ysv":Parameter(f"{categories}-j",categories,0,categories),
@@ -118,7 +118,7 @@ def model_template(name):
         "mx01j":Parameter("mx01",.0001,.0001,.9999),
         "mx01y":Parameter("fixed" if base=="BAYAREALIKE" else "mx01",.9999 if base=="BAYAREALIKE" else .0001,.0001,.9999),
     }
-    return BioGeoBEARSModelObject(display.replace("+X","+x"),p)
+    return BioGeoBEARSModelObject(display.replace("+X","+x").replace("+W","+w"),p)
 
 
 @dataclass
@@ -216,6 +216,22 @@ class FitResult:
     def run_bsm(self, num_maps=100, mode="uniformization", num_threads=1, seed=12345):
         from .bsm import run_bsm
         return run_bsm(self,num_maps,mode,num_threads,seed)
+
+    def profile_ci(self, **options):
+        from .uncertainty.profile import profile_ci
+        return profile_ci(self, **options)
+
+    def profile_surface(self, param_x, param_y, **options):
+        from .uncertainty.profile import profile_surface
+        return profile_surface(self, param_x, param_y, **options)
+
+    def bootstrap_lrt(self, alt_fit, **options):
+        from .uncertainty.bootstrap import bootstrap_lrt
+        return bootstrap_lrt(self, alt_fit, **options)
+
+    def run_bsm_adaptive(self, **options):
+        from .uncertainty.diagnostics import run_bsm_adaptive
+        return run_bsm_adaptive(self, **options)
 
     def plot(self, filepath, plot_what="pie", show_corners=True, title=None):
         from .plotting import plot_fit
@@ -343,7 +359,7 @@ class BioGeoBEARS:
             self._geometry[7]=self.root_likelihood_weights
 
     def _require_tier1a(self):
-        """Keep new probability contracts within the independently tested core."""
+        """Compatibility name for the validated single-layer Tier-1b gate."""
         c=self.config
         unsupported=[]
         if self.sections is not None: unsupported.append("time stratification")
@@ -354,28 +370,38 @@ class BioGeoBEARS:
         if np.any(self.tree.lengths[self.tree.edges[:,1]]<c.min_branchlength):
             unsupported.append("fossil-hook branches")
         if not self.null: unsupported.append("include_null_range=False")
-        if self.model.name not in ("DEC","DEC+J"): unsupported.append("models other than DEC/DEC+J")
-        if any(getattr(c,k) is not None for k in ("areas_allowed","areas_adjacency","distances",
-               "envdistances","dispersal_multipliers","area_of_areas")):
-            unsupported.append("spatial modifiers")
+        parts=self.model.name.upper().split("+")
+        if parts[0] not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X","W"}:
+            unsupported.append("nonstandard model family")
+        if any(getattr(c,k) is not None for k in ("areas_allowed","areas_adjacency",
+               "envdistances","area_of_areas")):
+            unsupported.append("unvalidated spatial modifiers")
         p=self.model.resolve()
         if any(p[k]!=v or self.model.params[k].type=="free"
-               for k,v in {"a":0,"b":1,"x":0,"n":0,"w":1,"u":0}.items()):
+               for k,v in {"a":0,"b":1,"n":0,"u":0}.items()):
             unsupported.append("nonstandard rate modifiers")
         base=model_template(self.model.name)
-        if any(self.model.params[k]!=base.params[k] for k in base.params if k not in ("d","e","j")):
+        if any(self.model.params[k]!=base.params[k] for k in base.params if k not in ("d","e","j","x","w")):
             unsupported.append("nonstandard cladogenesis parameters")
         if unsupported:
-            raise UnsupportedModelContractError("Tier-1a does not support "+", ".join(unsupported))
+            raise UnsupportedModelContractError("Tier-1b does not support "+", ".join(unsupported))
+        for key,matrix in (("x",self.dist),("w",self.manual)):
+            if self.model.params[key].type=="free" and self.model.params[key].min<0 and np.any(np.asarray(matrix)<=0):
+                raise ValueError(f"free {key} with negative bounds requires strictly positive modifier entries")
 
     def _validate_contract_params(self,params,*,force=False):
         if not force and self.likelihood_conditioning=="legacy_unconditioned" and not self._contract_native:
             return
-        if params["d"]<0 or params["e"]<0 or not 0<=params["j"]<3:
-            raise ValueError("Tier-1a requires d,e >= 0 and 0 <= j < 3")
-        expected=self.model.resolve({k:params[k] for k in ("d","e","j")})
-        if any(params[k]!=expected[k] for k in params if k not in ("d","e","j")):
-            raise UnsupportedModelContractError("parameter overrides cannot enable unvalidated Tier-1a modifiers")
+        categories={"DEC":3,"DIVALIKE":2,"BAYAREALIKE":1}[self.model.name.upper().split("+")[0]]
+        if params["d"]<0 or params["e"]<0 or not 0<=params["j"]<categories:
+            raise ValueError(f"Tier-1b requires d,e >= 0 and 0 <= j < {categories}")
+        expected=self.model.resolve({k:params[k] for k in ("d","e","j","x","w")})
+        if any(params[k]!=expected[k] for k in params if k not in ("d","e","j","x","w")):
+            raise UnsupportedModelContractError("parameter overrides cannot enable unvalidated Tier-1b modifiers")
+        with np.errstate(over="ignore",divide="ignore",invalid="ignore"):
+            modifiers=np.asarray(self.dist)**params["x"]*np.asarray(self.manual)**params["w"]
+        if not np.isfinite(modifiers).all() or np.any(modifiers<0):
+            raise ValueError("distance/manual exponents produced invalid rate multipliers")
 
     def prepared_likelihood(self,params=None,*,num_threads=1):
         """Compile once for repeated tip patterns at fixed model parameters."""

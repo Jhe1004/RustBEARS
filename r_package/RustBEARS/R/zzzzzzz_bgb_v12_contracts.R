@@ -5,6 +5,12 @@
 .bgb_v12_runtime$last_root <- NULL
 .bgb_v12_runtime$last_log_survival <- NULL
 .bgb_v12_contract_names <- c('legacy_unconditioned','tip_survival','unconditional_complete')
+.bgb_v12_standard_clado <- function(w) {
+    if(length(w)!=4L||any(!is.finite(w))||any(w<0))return(FALSE)
+    eq<-function(a,b)abs(a-b)<1e-12
+    (eq(w[1],w[2])&&eq(w[1],w[4])) ||
+    (eq(w[1],0)&&eq(w[2],w[4])) || (eq(w[1],0)&&eq(w[2],0))
+}
 
 define_root_prior <- function(mode=c('uniform_nonnull','custom_weights','legacy_flat_weights'),custom_weights=NULL) {
     mode<-match.arg(mode)
@@ -50,11 +56,11 @@ define_root_prior <- function(mode=c('uniform_nonnull','custom_weights','legacy_
     if(length(x$timeperiods)>1L||!is.null(x$trait)||!is.null(x$trait_model)||
        length(x$fixnode)||isTRUE(x$use_detection_model)||isTRUE(x$useAmbiguities))
         stop('UnsupportedModelContractError: Tier-1a requires a single layer without trait, detection or fixed-node constraints')
-    modifiers<-c('distsfn','dispersal_multipliers_fn','areas_allowed_fn','areas_adjacency_fn','area_of_areas_fn','envdistsfn')
+    modifiers<-c('areas_allowed_fn','areas_adjacency_fn','area_of_areas_fn','envdistsfn')
     for(key in modifiers)if(length(x[[key]])&&!all(is.na(x[[key]])))
-        stop('UnsupportedModelContractError: spatial modifiers await Tier-1b validation')
+        stop('UnsupportedModelContractError: this spatial modifier has not been validated')
     p<-x$BioGeoBEARS_model_object@params_table
-    for(key in c('a','b','x','n','w','u'))if(key %in% rownames(p)) {
+    for(key in c('a','b','n','u'))if(key %in% rownames(p)) {
         target<-if(key %in% c('b','w'))1 else 0
         if(p[key,'type']!='fixed'||p[key,'init']!=target||p[key,'est']!=target)
             stop('UnsupportedModelContractError: nonstandard rate modifiers await validation')
@@ -74,6 +80,12 @@ define_root_prior <- function(mode=c('uniform_nonnull','custom_weights','legacy_
 .bgb_v12_original_bears_optim_run <- bears_optim_run
 bears_optim_run <- .bgb_v12_original_bears_optim_run
 body(bears_optim_run) <- quote({
+    # The upstream optimx formatter assumes at least one estimated parameter.
+    # A fully fixed model is an evaluation and uses its scalar optim shell.
+    if(!any(BioGeoBEARS_run_object$BioGeoBEARS_model_object@params_table$type=='free')) {
+        skip_optim<-TRUE
+        BioGeoBEARS_run_object$use_optimx<-FALSE
+    }
     name<-BioGeoBEARS_run_object$likelihood_conditioning
     if(is.null(name))name<-'legacy_unconditioned'
     if(length(name)!=1L||!name %in% .bgb_v12_contract_names)stop('unknown likelihood_conditioning')
@@ -122,8 +134,6 @@ close_prepared_sampler <- function(sampler) {
 
 prepare_tree_sampler <- function(fit_or_model,conditioning='observed',root_distribution='model_prior') {
     if(!root_distribution %in% c('model_prior','empirical_posterior'))stop('unknown root_distribution')
-    if(root_distribution=='empirical_posterior')
-        stop('UnsupportedModelContractError: empirical-posterior root sampling is not yet validated')
     if(is.null(fit_or_model$inputs)) {
         fit_or_model<-bears_optim_run(fit_or_model,skip_optim=TRUE,skip_optim_option='return_all')
     }
@@ -156,9 +166,8 @@ prepare_tree_sampler <- function(fit_or_model,conditioning='observed',root_distr
     if(length(roots)!=1L)stop('invalid root')
     mats<-get_Qmat_COOmat_from_BioGeoBEARS_run_object(x,BioGeoBEARS_model_object=fit$outputs,
         max_range_size=x$max_range_size,include_null_range=x$include_null_range)
-    if(abs(mats$spPmat_inputs$s-mats$spPmat_inputs$v)>1e-12||
-       abs(mats$spPmat_inputs$s-mats$spPmat_inputs$y)>1e-12)
-        stop('UnsupportedModelContractError: Tier-1a sampling supports DEC and DEC+J only')
+    if(!.bgb_v12_standard_clado(unlist(mats$spPmat_inputs[c('s','v','j','y')],use.names=FALSE)))
+        stop('UnsupportedModelContractError: sampling supports the six standard cladogenesis models')
     states<-mats$states_list;n<-length(states)
     null<-as.integer(.bgb_v12_state_label(states[[1]])=='_')
     prior<-.bgb_v12_resolve_root(x$root_prior,states,match(contract,.bgb_v12_contract_names)-1L)
@@ -173,10 +182,13 @@ prepare_tree_sampler <- function(fit_or_model,conditioning='observed',root_distr
         weights<-fit$ML_marginal_prob_each_state_at_branch_top_AT_node[roots,]
         if(any(!is.finite(weights))||sum(weights)<=0)stop('invalid empirical root posterior')
         weights<-weights/sum(weights)
+        if(code==1L)code<-4L
     }
     tipranges<-getranges_from_LagrangePHYLIP(x$geogfn)
     matrix_geog<-as.matrix(tipranges@df)
     matrix_geog<-matrix_geog[phy$tip.label,,drop=FALSE]
+    if(code==0L&&contract=='legacy_unconditioned'&&any(rowSums(matrix_geog=='0')==ncol(matrix_geog)))
+        stop('UnsupportedModelContractError: Contract-C observed mapping with empty tips is undefined; use unconditional_complete')
     tips<-matrix(0,nt,n)
     for(i in seq_len(nt)) {
         row<-as.character(matrix_geog[i,])
@@ -207,6 +219,7 @@ prepare_tree_sampler <- function(fit_or_model,conditioning='observed',root_distr
     handle<-.Call(.bgb_c_bgb_sampler_prepare,buffers,weights,as.integer(code))
     structure(list(handle=handle,states=states,ranges=mats$ranges_list,areas=colnames(matrix_geog),
         tip_labels=phy$tip.label,num_nodes=nn,conditioning=conditioning,
+        tree_topology_hash=.bgb_u_tree_key(phy)$topology_hash,model_id=1L,
         likelihood_conditioning=contract,root_distribution=root_distribution,
         root_sampling_probs=weights/sum(weights),precision_mode=fit$precision_mode),class='PreparedTreeSampler')
 }
@@ -241,7 +254,16 @@ draw_prepared_bsm <- function(sampler,num_maps=100L,start=1,seed=12345,num_threa
         'time_bp','stratum','event_type','source_area','destination_area'),sampler)
     ana<-.bgb_v12_event_frame(raw[[2]],c('map','node','stratum','from_state','to_state','time_bp','segment_time',
         'event_type','source_area','destination_area'),sampler)
-    structure(list(clado_events_df=clado,ana_events_df=ana,num_maps=num_maps,start=start,seed=seed,
+    metadata<-data.frame(tree_id=1L,tree_topology_hash=sampler$tree_topology_hash,model_id=sampler$model_id,
+        map=as.double(start+seq_len(num_maps)-1L),map_id=as.double(start+seq_len(num_maps)-1L),stratum_weight=1,precision_mode=sampler$precision_mode,
+        likelihood_conditioning=sampler$likelihood_conditioning,stringsAsFactors=FALSE)
+    annotate<-function(events) {
+        index<-match(events$map,metadata$map_id)
+        for(key in names(metadata))events[[key]]<-metadata[[key]][index]
+        events
+    }
+    structure(list(clado_events_df=annotate(clado),ana_events_df=annotate(ana),num_maps=num_maps,start=start,seed=seed,
+        map_metadata_df=metadata,tree_topology_hash=sampler$tree_topology_hash,
         likelihood_conditioning=sampler$likelihood_conditioning,areas=sampler$areas,
         precision_mode=sampler$precision_mode),class='BSMResult')
 }

@@ -74,6 +74,9 @@ fn prepare(a: &[&[f64]], root: &[f64], mode: u32) -> Result<PreparedTreeSampler,
 /// # Safety
 /// Buffers remain readable for the declared lengths through this call. The
 /// returned handle is uniquely owned and released exactly once.
+/// `conditioning` is 0 (observed), 1 (tip survival), 2 (complete process),
+/// or 4 (tip survival with an already conditioned root distribution).
+/// Mode 3 is private to the legacy adapter and is rejected here.
 #[no_mangle]
 pub unsafe extern "C" fn bgb_sampler_prepare(
     ptrs: *const *const f64,
@@ -195,5 +198,108 @@ pub unsafe extern "C" fn bgb_sampler_simulate_tips(
 pub unsafe extern "C" fn bgb_sampler_release(p: *mut SamplerHandle) {
     if !p.is_null() {
         drop(unsafe { Box::from_raw(p) });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn buffers_fixture() -> Vec<Vec<f64>> {
+        vec![
+            vec![2.0, 2.0],
+            vec![-1.0, 0.0, 1.0],
+            vec![1.0, 1.0, 1.0],
+            vec![0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
+            vec![2.0, 0.0, 1.0],
+            vec![0.0, 0.0, 1.0],
+            vec![0.0; 3],
+            vec![0.0; 3],
+            vec![1.0; 9],
+            vec![0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0],
+            vec![0.0, 0.1, 1.0, 0.0, -0.1, 0.0, 0.0, 0.0, -1.0],
+            vec![1.0; 3],
+            vec![1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 1.0],
+            vec![1.0; 4],
+        ]
+    }
+
+    fn owned_handle(mode: u32) -> *mut SamplerHandle {
+        let a = buffers_fixture();
+        let ptrs: Vec<_> = a.iter().map(|x| x.as_ptr()).collect();
+        let lens: Vec<_> = a.iter().map(Vec::len).collect();
+        let roots = [0.0, 0.4, 0.6];
+        // All input arrays are dropped before the caller uses the returned handle.
+        unsafe {
+            bgb_sampler_prepare(
+                ptrs.as_ptr(),
+                lens.as_ptr(),
+                a.len(),
+                roots.as_ptr(),
+                roots.len(),
+                mode,
+            )
+        }
+    }
+
+    #[test]
+    fn conditioned_root_is_not_weighted_by_survival_again() {
+        unsafe {
+            let fixed = owned_handle(4);
+            assert!(bgb_sampler_error(fixed).is_null());
+            let ordinary = owned_handle(1);
+            assert!(bgb_sampler_error(ordinary).is_null());
+            let fixed_reply = Box::from_raw(bgb_sampler_simulate_tips(fixed, 1, 20_000, 91, 2));
+            let ordinary_reply =
+                Box::from_raw(bgb_sampler_simulate_tips(ordinary, 1, 20_000, 91, 1));
+            assert!(fixed_reply.error.is_none());
+            assert!(ordinary_reply.error.is_none());
+            let frequency = |r: &Reply| {
+                r.buffers[1]
+                    .chunks_exact(3)
+                    .filter(|row| row[2] == 1.0)
+                    .count() as f64
+                    / 20_000.0
+            };
+            assert!((frequency(&fixed_reply) - 0.4).abs() < 0.015);
+            let weighted =
+                0.4 * (-0.2_f64).exp() / (0.4 * (-0.2_f64).exp() + 0.6 * (-2.0_f64).exp());
+            assert!((frequency(&ordinary_reply) - weighted).abs() < 0.015);
+            assert!(fixed_reply.buffers[0].iter().all(|x| *x != 0.0));
+            assert!(fixed_reply.buffers[1]
+                .chunks_exact(3)
+                .all(|row| row[0] == row[2] && row[1] == row[2]));
+            let misuse = Box::from_raw(bgb_sampler_draw_bsm(fixed, 1, 1, 91, 1, 0));
+            assert!(misuse.error.is_some());
+            bgb_sampler_release(fixed);
+            bgb_sampler_release(ordinary);
+        }
+    }
+
+    #[test]
+    fn private_legacy_mode_is_not_exposed_by_preparation() {
+        unsafe {
+            let invalid = owned_handle(3);
+            assert!(!bgb_sampler_error(invalid).is_null());
+            bgb_sampler_release(invalid);
+            bgb_sampler_release(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn conditioned_root_batches_and_threads_keep_replicate_identity() {
+        unsafe {
+            let handle = owned_handle(4);
+            assert!(bgb_sampler_error(handle).is_null());
+            let all = Box::from_raw(bgb_sampler_simulate_tips(handle, 1, 101, 12345, 1));
+            let first = Box::from_raw(bgb_sampler_simulate_tips(handle, 1, 37, 12345, 4));
+            let second = Box::from_raw(bgb_sampler_simulate_tips(handle, 38, 64, 12345, 2));
+            assert!(all.error.is_none() && first.error.is_none() && second.error.is_none());
+            for i in 0..2 {
+                let joined = [&first.buffers[i][..], &second.buffers[i][..]].concat();
+                assert_eq!(all.buffers[i], joined);
+            }
+            bgb_sampler_release(handle);
+        }
     }
 }

@@ -117,11 +117,16 @@ class FitContractGuardTests(unittest.TestCase):
             validate_compatible_fits((bad,))
         with self.assertRaises(TypeError):
             prepare_comparison_fits(fit, fit, refit_observed="yes")
+        with self.assertRaisesRegex(b.ContractMismatchError,"fixed/linked"):
+            validate_compatible_fits((replace(fit,params={**fit.params,"d":.3}),))
 
-    def test_empirical_posterior_root_mode_is_explicitly_disabled(self):
+    def test_empirical_posterior_root_mode_does_not_repeat_survival_weight(self):
         fit = fitted(contract="tip_survival")
-        with self.assertRaisesRegex(b.UnsupportedModelContractError, "already-conditioned"):
-            b.PreparedSimulation(fit, root_distribution="empirical_posterior")
+        expected=fit.evaluation.ancestral_probs_branch_top[fit.model.tree.root]
+        with b.PreparedSimulation(fit, root_distribution="empirical_posterior") as sampler:
+            sample=sampler.draw(20000,seed=17)
+        observed=np.bincount(sample.node_states[:,fit.model.tree.root],minlength=len(expected))/20000
+        np.testing.assert_allclose(observed,expected,atol=.015,rtol=0)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
         return(invisible(NULL))
     }
     packageStartupMessage(
-        "RustBEARS v1.1.4 (Unified Rust Engine compatible with BioGeoBEARS; GPL >= 3)\n",
+        "RustBEARS v1.2.0 development (Unified Rust Engine compatible with BioGeoBEARS; GPL >= 3)\n",
         "  - Foundational methodology & R framework: Nicholas J. Matzke (2013, 2014).\n",
         "  - Co-citation policy: Please cite BOTH Matzke (2013, 2014) and RustBEARS (see citation('RustBEARS')).\n",
         "  - Derivative support boundary: Report technical/build issues to https://github.com/Jhe1004/RustBEARS/issues (not the upstream author)."

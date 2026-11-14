@@ -16,14 +16,7 @@ for arg in "$@"; do
 done
 
 echo "[1/5] Synchronizing unified Rust workspace and license notices ..."
-rm -rf r_package/RustBEARS/src/rust
-rsync -a --exclude='target' --exclude='.DS_Store' rust/ r_package/RustBEARS/src/rust/
-# R builds a static archive linked against R's own BLAS/LAPACK symbols
-python3 - <<'PY'
-from pathlib import Path
-p = Path("r_package/RustBEARS/src/rust/crates/bgb-ffi/Cargo.toml")
-p.write_text(p.read_text().replace('crate-type = ["staticlib", "cdylib"]', 'crate-type = ["staticlib"]'))
-PY
+python3 scripts/sync_r_sources.py --manifest dist/r-rust-source-manifest.json
 cp -f NOTICE-Rust-port.md r_package/RustBEARS/inst/NOTICE-Rust-port.md
 cp -f NOTICE-Rust-port.md rustbears/NOTICE-Rust-port.md
 cp -f THIRD_PARTY_LICENSES.md r_package/RustBEARS/inst/THIRD_PARTY_LICENSES.md
@@ -53,10 +46,10 @@ if [ "$SKIP_PY_TESTS" -eq 1 ]; then
   echo "[4/5] Skipping Python regression test suite (--skip-python-tests; covered by Python CI job) ..."
 else
   echo "[4/5] Running self-contained Python regression test suite ..."
-  python3 -m unittest discover -s tests -p "test_*.py" -v
+  python3 -m pytest -q tests
 fi
 
-echo "[5/5] Packaging reproducible anonymized R source tarball into dist/RustBEARS_1.1.4.tar.gz ..."
+echo "[5/5] Packaging reproducible anonymized R source tarball into dist/ ..."
 python3 - <<'PY'
 import gzip
 import os
@@ -67,13 +60,16 @@ import tarfile
 epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "1700000000"))
 dist_dir = Path("dist")
 dist_dir.mkdir(exist_ok=True)
-out_tar = dist_dir / "RustBEARS_1.1.4.tar.gz"
+version = next(line.split(":", 1)[1].strip() for line in Path("r_package/RustBEARS/DESCRIPTION").read_text().splitlines() if line.startswith("Version:"))
+out_tar = dist_dir / f"RustBEARS_{version}.tar.gz"
 pkg_dir = Path("r_package") / "RustBEARS"
 
 def should_skip(rel_parts):
     if any(part in {".DS_Store", "__pycache__", ".Rapp.history"} for part in rel_parts):
         return True
     rel_posix = "/".join(rel_parts)
+    if rel_posix in {"src/Makevars", "src/Makevars.win"}:
+        return True
     if rel_posix.startswith("src/rust/target") or rel_posix.endswith((".o", ".so", ".dylib", ".dll")):
         return True
     return False
@@ -105,4 +101,4 @@ with open(out_tar, "wb") as raw_fh:
                         tf.addfile(ti, f)
 PY
 
-echo "Clean release build & verification succeeded: dist/RustBEARS_1.1.4.tar.gz"
+echo "Clean release build & verification succeeded; artifacts are in dist/"

@@ -12,6 +12,47 @@ import numpy as np
 from .contracts import CONTRACTS, ContractMismatchError
 
 
+def clone_model(model, *, geog=None, model_object=None, **changes):
+    """Create an independent, serializable model with the same in-memory data."""
+    from ..model import BioGeoBEARS
+    config=copy.deepcopy(replace(model.config,tree=model.tree,geog=model.geog,
+                                model=model.model,root_prior=model.root_prior_spec))
+    # Inputs may originally have been filenames. A refit uses the matrices
+    # that produced this fit, even if a file was edited afterwards.
+    for key,values in (("distances",model.dist),("envdistances",model.env),
+                       ("dispersal_multipliers",model.manual),("area_of_areas",model.area_size)):
+        if getattr(model.config,key) is not None:
+            setattr(config,key,np.array(values,copy=True))
+    if model.config.timeperiods is not None:
+        config.timeperiods=np.array(model.raw_times,copy=True)
+    if geog is not None:
+        config.geog=copy.deepcopy(geog)
+    if model_object is not None:
+        config.model=model_object
+    for key,value in changes.items():
+        if key not in config.__dataclass_fields__:
+            raise ValueError(f"unknown model configuration {key}")
+        setattr(config,key,value)
+    return BioGeoBEARS(config)
+
+
+def model_manifest(model):
+    """Fingerprint the resolved input, including files already read into memory."""
+    return dict(tree=dict(labels=model.tree.labels,children=model.tree.children,
+                          lengths=model.tree.lengths,ages=model.tree.ages,root_edge=model.tree.root_edge),
+                areas=model.areas,states=model.states,tips=model.tips,
+                parameters={key:dict(type=p.type,init=p.init,min=p.min,max=p.max)
+                            for key,p in model.model.params.items()},model_name=model.model.name,
+                root_likelihood_weights=model.root_likelihood_weights,
+                root_sampling_probs=model.root_sampling_probs,root_prior_mode=model.root_prior_spec.mode,
+                precision=model.precision,contract=model.likelihood_conditioning,
+                dist=model.dist,env=model.env,manual=model.manual,area_size=model.area_size,
+                times=model.times,masks=model.masks,fixes=model.fixes,fixlikes=model.fixlikes,
+                include_null_range=model.config.include_null_range,
+                allow_null_tips=model.config.allow_null_tips,min_branchlength=model.config.min_branchlength,
+                force_sparse=model.config.force_sparse,rootedge=model.config.rootedge)
+
+
 def _tree_signature(tree):
     """Compare rooted topology/branch lengths independently of child rotation."""
     clades={i:(str(label),) for i,label in enumerate(tree.tip_labels)}
@@ -58,6 +99,12 @@ def validate_compatible_fits(fits,*,require_converged=True):
         if not np.isfinite(fit.lnL) or not np.isfinite(list(fit.params.values())).all():
             raise ValueError("comparison requires finite fitted scores and parameters")
         model=fit.model
+        expected=model.model.resolve({key:fit.params[key] for key in model.model.free})
+        if any(fit.params.get(key)!=value for key,value in expected.items()):
+            raise ContractMismatchError("fit fixed/linked parameters do not match its model definition")
+        if any(not model.model.params[key].min<=fit.params[key]<=model.model.params[key].max
+               for key in model.model.free):
+            raise ContractMismatchError("fitted free parameters fall outside their model bounds")
         if (fit.likelihood_conditioning!=model.likelihood_conditioning or
             fit.precision_mode!=model.precision or
             not np.array_equal(fit.root_prior_vec,model.root_sampling_probs)):
@@ -125,12 +172,9 @@ def prepare_comparison_fits(null_fit,alt_fit,*,target_conditioning="match_fits",
     models=[]
     for fit in original:
         old=fit.model
-        config=replace(old.config,tree=copy.deepcopy(old.tree),geog=copy.deepcopy(old.geog),
-                       model=old.model,root_prior=old.root_prior_spec,
-                       likelihood_conditioning=target,
-                       allow_null_tips=(target=="unconditional_complete" or
-                                        target=="legacy_unconditioned" and old.config.allow_null_tips))
-        models.append(BioGeoBEARS(config))
+        models.append(clone_model(old,likelihood_conditioning=target,
+                                  allow_null_tips=(target=="unconditional_complete" or
+                                                  target=="legacy_unconditioned" and old.config.allow_null_tips)))
     converted=[]
     for old,model in zip(original,models):
         options=dict(fit_options or {})

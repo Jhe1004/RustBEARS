@@ -1,8 +1,8 @@
 Package: RustBEARS
 Type: Package
 Title: Rust-Accelerated Probabilistic Historical Biogeography Compatible with 'BioGeoBEARS'
-Version: 1.1.4
-Date: 2026-11-14
+Version: 1.2.0.9000
+Date: 2026-11-15
 Authors@R: c(
     person("Nicholas J.", "Matzke", role = c("aut", "cph"),
            comment = "Original creator and foundational author of BioGeoBEARS, rexpokit, and cladoRcpp"),
@@ -13,8 +13,9 @@ Author: Nicholas J. Matzke [aut, cph], Jian He [trl, ctb, cre]
 Maintainer: Jian He <j.he930724@gmail.com>
 Depends:
     R (>= 4.0.0)
-Imports: methods, optimx, parallel, plotrix, GenSA, ape, phytools, expm, fdrtool, httr, statmod, SparseM, spam, stringr, MultinomialCI
-Suggests: testthat, devtools, gdata, phylobase, rexpokit, cladoRcpp, FD, snow, minqa
+Imports: methods, optimx, parallel, plotrix, GenSA, ape, phytools, expm, fdrtool, httr, statmod, SparseM, spam, stringr, MultinomialCI, digest
+Suggests: testthat, devtools, gdata, phylobase, rexpokit, cladoRcpp, FD, snow, minqa, knitr, rmarkdown
+VignetteBuilder: knitr
 Description: Drop-in function-compatible R interface to the BioGeoBEARS historical biogeography framework powered by RustBEARS, a self-contained, memory-safe Rust computational engine (zero external Fortran/C++ package compilation required). Named 'RustBEARS' to preserve the upstream 'BioGeoBEARS' package namespace while keeping all modelling, optimization, stochastic mapping, and plotting function signatures 100% compatible. Original foundational methodology and R modelling framework by Nicholas J. Matzke (2013, 2014). As a matter of scholarly credit, users publishing results are requested to cite both the foundational Matzke (2013, 2014) publications and RustBEARS; run citation("RustBEARS") for complete co-citation entries. Derivative technical support and compilation issues should be reported to the GitHub issue tracker below rather than the original upstream author.
 URL: https://github.com/Jhe1004/RustBEARS, http://phylo.wikidot.com/biogeobears
 BugReports: https://github.com/Jhe1004/RustBEARS/issues

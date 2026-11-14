@@ -15,8 +15,15 @@ from .stratified import section_the_tree
 from .traits import TraitModel
 from .uncertainty.contracts import RootPriorSpec, ContractMismatchError, UnsupportedModelContractError
 from .uncertainty.simulate import SimulatedBatch, PreparedSimulation, simulate_datasets
+from .uncertainty.parallel import ParallelConfig
+from .uncertainty.bootstrap import BootstrapLRTResult, bootstrap_lrt
+from .uncertainty.profile import ParameterInterval, ProfileCIResult, ProfileOptimizationError, profile_ci, profile_surface
+from .uncertainty.checkpoint import CheckpointStore, CheckpointMismatchError
+from .uncertainty.averaging import ModelAverageResult, model_average
+from .uncertainty.diagnostics import BSMDiagnosticsResult, bsm_diagnostics, run_bsm_adaptive
+from .uncertainty.multitree import MultiTreeFitResult, fit_over_trees, TreeFailureError
 
-__version__ = "1.1.4"
+__version__ = "1.2.0.dev0"
 from .bsm import BSMResult, count_ana_clado_events, get_inputs_for_stochastic_mapping, runBSM, simulate_source_areas_ana_clado
 from .plotting import plot_bsm
 from .stats import AkaikeWeights_on_summary_table, compare_models, lrttest

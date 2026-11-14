@@ -61,21 +61,17 @@ class PreparedSimulation:
         self.conditioning=resolve_simulation_conditioning(m.likelihood_conditioning,conditioning)
         if root_distribution not in ("model_prior","empirical_posterior"):
             raise ValueError("unknown root_distribution")
-        if root_distribution=="empirical_posterior":
-            raise UnsupportedModelContractError(
-                "empirical_posterior root simulation is not enabled: tip-survival sampling "
-                "requires a separate already-conditioned root path"
-            )
         self.root_distribution=root_distribution
-        prior=m.root_sampling_probs.copy()
+        prior=(m.evaluate(self.params).ancestral_probs_branch_top[m.tree.root].copy()
+               if root_distribution=="empirical_posterior" else m.root_sampling_probs.copy())
         if self.conditioning=="tip_survival":
             prior[np.array([not s for s in m.states])]=0
         mass=float(prior.sum())
         if not np.isfinite(prior).all() or np.any(prior<0) or mass<=0:
             raise ValueError("simulation root distribution has no admissible finite positive mass")
         self.root_prior_vec=prior/mass
-        self.sampler=PreparedSampler(sampler_buffers(m,self.params),self.root_prior_vec,
-            1 if self.conditioning=="tip_survival" else 2)
+        mode=(4 if root_distribution=="empirical_posterior" else 1) if self.conditioning=="tip_survival" else 2
+        self.sampler=PreparedSampler(sampler_buffers(m,self.params),self.root_prior_vec,mode)
 
     def draw(self,n_reps=100,*,start_rep=1,seed=12345,num_threads=1):
         out=self.sampler.draw(start_rep,n_reps,seed,num_threads)

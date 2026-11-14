@@ -5,9 +5,8 @@ message: >-
   package or native Python interface), please co-cite BOTH the foundational
   BioGeoBEARS publications by Nicholas J. Matzke (2013, 2014) listed under
   references AND this RustBEARS software release.
-title: "RustBEARS: Unified Rust Computational Engine for Historical Biogeography"
-version: "1.1.4"
-date-released: "2026-11-14"
+title: "RustBEARS: Uncertainty-Aware Likelihood Inference of Historical Biogeography"
+version: "1.2.0.dev0"
 license: "GPL-3.0-or-later"
 repository-code: "https://github.com/Jhe1004/RustBEARS"
 url: "https://github.com/Jhe1004/RustBEARS"

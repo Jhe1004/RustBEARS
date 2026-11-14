@@ -30,11 +30,14 @@ named with canonical zero-based area indices joined by commas; the empty state i
 \item{conditioning}{\code{"observed"} for BSM; \code{"tip_survival"} or
 \code{"unconditional_complete"} for forward sampling. \code{"from_model"}
 inherits the fitted probability contract and rejects historical scores.}
-\item{root_distribution}{\code{"model_prior"}. Other variants are rejected until validated.}
+\item{root_distribution}{\code{"model_prior"}, or the explicitly requested
+\code{"empirical_posterior"} simulation variant. The latter draws roots directly
+from the fitted posterior and is not a parametric-null calibration guarantee.}
 \item{sampler}{A prepared native sampler returned by \code{prepare_tree_sampler}.}
 \item{n_reps, num_maps}{Number of data sets or stochastic maps to draw.}
 \item{num_threads}{Number of native worker threads, from 1 to 256.}
-\item{seed}{A nonnegative exactly represented integer seed.}
+\item{seed}{A nonnegative exactly represented integer up to 2\eqn{^{53}}-1,
+or an unsigned 64-bit integer supplied as a decimal or \code{0x}-prefixed string.}
 \item{start}{One-based global replicate or map index. Disjoint batches reproduce
 the corresponding rows of a single larger draw.}
 \item{return_node_states}{Whether to return simulated internal-node states.}

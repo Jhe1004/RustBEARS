@@ -158,6 +158,8 @@ struct OwnedTree {
 /// Immutable prepared probability tree with thread-safe lazy transition rows.
 /// Mode 0 observes tips, 1 simulates nonempty tips, 2 simulates the complete
 /// absorbing process. Internal mode 3 preserves the old whole-tree sampler.
+/// Public mode 4 uses nonempty-tip conditioning below the root, but takes the
+/// supplied root distribution as already conditioned (e.g. an observed posterior).
 pub struct PreparedTreeSampler {
     input: OwnedTree,
     layers: Vec<Layer>,
@@ -185,7 +187,7 @@ impl PreparedTreeSampler {
         root_weights: &[f64],
         conditioning: u32,
     ) -> Result<Self, String> {
-        if conditioning > 2 {
+        if !matches!(conditioning, 0 | 1 | 2 | 4) {
             return Err("invalid sampler conditioning".into());
         }
         Self::prepare_impl(input, root_weights, conditioning)
@@ -254,7 +256,7 @@ impl PreparedTreeSampler {
                         .states
                         .first()
                         .map_or(true, |x| !x.iter().all(|i| *i < 0))
-                    || (conditioning == 1 && root_weights[0] != 0.0))
+                    || (matches!(conditioning, 1 | 4) && root_weights[0] != 0.0))
             {
                 return Err(
                     "simulation requires normalized root prior and an explicit empty state".into(),
@@ -363,7 +365,7 @@ impl PreparedTreeSampler {
         for i in 0..nt {
             for s in 0..n {
                 down[i][s] = match conditioning {
-                    1 => {
+                    1 | 4 => {
                         if s == 0 {
                             0.0
                         } else {
@@ -416,7 +418,14 @@ impl PreparedTreeSampler {
 
         if !root_weights.is_empty() {
             for (p, w) in down[input.root].iter_mut().zip(root_weights) {
-                *p *= w;
+                if conditioning == 4 {
+                    if *w > 0.0 && *p <= 0.0 {
+                        return Err("conditioned root distribution includes a state with zero tip-survival probability".into());
+                    }
+                    *p = *w;
+                } else {
+                    *p *= w;
+                }
             }
             if down[input.root].iter().sum::<f64>() <= 0.0 {
                 return Err("zero root conditional mass".into());
@@ -586,7 +595,7 @@ impl PreparedTreeSampler {
         rejection: bool,
     ) -> Result<Vec<Vec<f64>>, String> {
         self.validate_range(start, count, threads)?;
-        if self.conditioning == 1 || self.conditioning == 2 {
+        if matches!(self.conditioning, 1 | 2 | 4) {
             return Err("simulation handle cannot draw observed-data BSM".into());
         }
         let simulate = |map: usize| self.sample_one(map, seed, rejection, true);
@@ -617,7 +626,7 @@ impl PreparedTreeSampler {
         threads: usize,
     ) -> Result<Vec<Vec<f64>>, String> {
         self.validate_range(start, count, threads)?;
-        if self.conditioning != 1 && self.conditioning != 2 {
+        if !matches!(self.conditioning, 1 | 2 | 4) {
             return Err("observed-data handle cannot simulate datasets".into());
         }
         let seed = seed ^ 0x5349_4D5F_4247_4233;
