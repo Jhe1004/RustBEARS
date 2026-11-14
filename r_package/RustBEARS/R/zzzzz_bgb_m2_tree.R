@@ -60,7 +60,9 @@
 }
 .bgb_m2_calc <- function(frame) {
     x<-mget(names(formals(.bgb_m1_calc_loglike_sp_prebyte)),envir=frame,inherits=FALSE)
-    original<-function(){.bgb_m2_runtime$compatibility_fallbacks<-.bgb_m2_runtime$compatibility_fallbacks+1L;if(inherits(x$Qmat,'bgb_private_Q_parameters'))x$Qmat<-do.call(rcpp_states_list_to_DEmat,unclass(x$Qmat));do.call(.bgb_m1_calc_loglike_sp_prebyte,x)}
+    contract<-.bgb_v12_runtime$contract
+    root_spec<-.bgb_v12_runtime$root_prior
+    original<-function(){if(contract!=0L||!is.null(root_spec))stop('UnsupportedModelContractError: this input is outside the validated native probability contract');.bgb_m2_runtime$compatibility_fallbacks<-.bgb_m2_runtime$compatibility_fallbacks+1L;if(inherits(x$Qmat,'bgb_private_Q_parameters'))x$Qmat<-do.call(rcpp_states_list_to_DEmat,unclass(x$Qmat));do.call(.bgb_m1_calc_loglike_sp_prebyte,x)}
     # Stratified treepieces retain their original orchestration until M3.
     if(isTRUE(x$stratified))return(original())
     boolean_args<-x[c('use_cpp','input_is_COO','sparse','include_null_range','calc_ancprobs','rootedge','stratified')]
@@ -78,6 +80,21 @@
     if(length(prep_warnings))return(original())
     if(inherits(prep,'error')){.bgb_m2_runtime$last_compatibility_reason<-conditionMessage(prep);return(original())}
     if(x$calc_ancprobs&&prep$kind!=1L)return(original())
+    if(contract!=0L) {
+        if(length(x$m)||length(x$fixnode)||isTRUE(x$rootedge)||!is.null(x$states_allowed_TF)||
+           any(x$phy$edge.length<x$min_branchlength)||is.null(prep$model))
+            stop('UnsupportedModelContractError: contract A/B currently requires a single-layer unmasked binary tree without hooks or fixed nodes')
+        weights<-prep$model$parameters
+        if(abs(weights[1]-weights[2])>1e-12||abs(weights[1]-weights[4])>1e-12)
+            stop('UnsupportedModelContractError: Tier-1a supports DEC and DEC+J only')
+    }
+    if(!is.null(root_spec)||contract!=0L) {
+        states<-x$spPmat_inputs$l
+        if(length(states)==n-1L&&isTRUE(x$include_null_range))states<-c(list(NA_integer_),states)
+        resolved<-.bgb_v12_resolve_root(root_spec,states,contract)
+        x$probs_of_states_at_root<-resolved$likelihood_weights
+        .bgb_v12_runtime$last_root<-resolved
+    }
     phy<-reorder(x$phy,'pruningwise')
     threads<-.bgb_m2_runtime$threads
     precision<-.bgb_precision()
@@ -110,8 +127,10 @@
     }else list(c(0,0,0,0),numeric(),numeric(),numeric())
     cp<-if(!is.null(prep$model))c(list(prep$model$parameters,prep$model$dmat),prep$model$priors,list(prep$model$maxmin,prep$model$na))else rep(list(numeric()),8)
     a<-c(a,qp,cp)
-    result<-tryCatch(.Call(.bgb_c_bgb_tree,entry$handle,entry$config,a,precision,as.integer(threads)),error=function(e)e)
-    if(inherits(result,'error')){.bgb_m2_runtime$last_compatibility_reason<-conditionMessage(result);return(original())}
+    result<-tryCatch(if(contract==0L&&is.null(root_spec)).Call(.bgb_c_bgb_tree,entry$handle,entry$config,a,precision,as.integer(threads)) else
+        .Call(.bgb_c_bgb_tree_contract,entry$handle,entry$config,a,precision,as.integer(threads),contract,numeric()),error=function(e)e)
+    if(inherits(result,'error')){if(contract!=0L||!is.null(root_spec))stop(result);.bgb_m2_runtime$last_compatibility_reason<-conditionMessage(result);return(original())}
+    .bgb_v12_runtime$last_log_survival<-if(contract==1L)tail(result[[1]],1L) else NULL
     .bgb_m2_runtime$native_calls<-.bgb_m2_runtime$native_calls+1L
     num_short<-sum(phy$edge.length<x$min_branchlength)
     if(x$printlevel>=1L&&num_short>0){

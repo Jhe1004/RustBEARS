@@ -13,6 +13,8 @@ from .operators import (
 )
 from .stratified import section_the_tree
 from .traits import TraitModel
+from .uncertainty.contracts import RootPriorSpec, ContractMismatchError, UnsupportedModelContractError
+from .uncertainty.simulate import SimulatedBatch, PreparedSimulation, simulate_datasets
 
 __version__ = "1.1.4"
 from .bsm import BSMResult, count_ana_clado_events, get_inputs_for_stochastic_mapping, runBSM, simulate_source_areas_ana_clado

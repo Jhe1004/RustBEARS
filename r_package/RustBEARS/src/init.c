@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 #ifndef _WIN32
 #include <dlfcn.h>
 #endif
@@ -115,6 +116,7 @@ extern ContextHandle *bgb_strat_context_create(const double **,const size_t *,si
 extern const char *bgb_context_error(const ContextHandle *);
 extern void bgb_context_free(ContextHandle *);
 extern Reply *bgb_context_evaluate(ContextHandle *,const double **,const size_t *,size_t,uint32_t);
+extern Reply *bgb_context_evaluate_contract(ContextHandle *,const double **,const size_t *,size_t,uint32_t,uint32_t,const double *,size_t);
 static void finalize_context(SEXP ptr){ContextHandle *p=(ContextHandle*)R_ExternalPtrAddr(ptr);R_ClearExternalPtr(ptr);if(p)bgb_context_free(p);}
 static void numeric_buffers(SEXP args,const double ***ptrs,size_t **lens,SEXP *keep){
  if(TYPEOF(args)!=VECSXP)Rf_error("tree arguments must be a list");
@@ -160,6 +162,95 @@ static SEXP c_bgb_tree_handle(void){
 static SEXP c_bgb_strat_handle(void){
  SEXP ptr=PROTECT(R_MakeExternalPtr(NULL,Rf_install("bgb_M3_context"),R_NilValue));
  UNPROTECT(1);return ptr;
+}
+/* v1.2 additive ABI. Legacy entry points and index order remain unchanged. */
+static SEXP c_bgb_tree_contract(SEXP ptr,SEXP config,SEXP args,SEXP precision,SEXP threads,SEXP contract,SEXP tips){
+ if(TYPEOF(ptr)!=EXTPTRSXP || R_ExternalPtrTag(ptr)!=Rf_install("bgb_M2_context"))
+  Rf_error("contract evaluation requires a single-layer tree handle");
+ int code=Rf_asInteger(contract), nth=Rf_asInteger(threads);
+ if(code<0 || code>2 || nth<1 || nth>256)Rf_error("invalid contract or thread count");
+ ContextHandle *context=(ContextHandle*)R_ExternalPtrAddr(ptr);
+ if(!context){
+  R_RegisterCFinalizerEx(ptr,finalize_context,TRUE);
+  const double **p;size_t *lens;SEXP keep;numeric_buffers(config,&p,&lens,&keep);
+  context=bgb_context_create(p,lens,(size_t)XLENGTH(config),(size_t)nth);
+  const char *failure=bgb_context_error(context);
+  if(failure){char msg[1024];snprintf(msg,sizeof(msg),"%s",failure);bgb_context_free(context);UNPROTECT(1);Rf_error("%s",msg);}
+  R_SetExternalPtrAddr(ptr,context);UNPROTECT(1);
+ }
+ const double **p;size_t *lens;SEXP keep;numeric_buffers(args,&p,&lens,&keep);
+ SEXP tip_values=PROTECT(Rf_coerceVector(tips,REALSXP));
+ uint32_t mode=(uint32_t)Rf_asInteger(precision);
+ int blas_threads=blas_enter();
+ Reply *reply=bgb_context_evaluate_contract(context,p,lens,(size_t)XLENGTH(args),
+     mode,(uint32_t)code,REAL(tip_values),(size_t)XLENGTH(tip_values));
+ blas_leave(blas_threads);
+ const char *failure=bgb_result_error(reply);
+ if(failure){char msg[1024];snprintf(msg,sizeof(msg),"%s",failure);bgb_result_free(reply);UNPROTECT(2);Rf_error("%s",msg);}
+ SEXP out=R_UnwindProtect(copy_reply,reply,free_reply,reply,NULL);UNPROTECT(2);return out;
+}
+typedef struct SamplerHandle SamplerHandle;
+extern SamplerHandle *bgb_sampler_prepare(const double **,const size_t *,size_t,const double *,size_t,uint32_t);
+extern const char *bgb_sampler_error(const SamplerHandle *);
+extern void bgb_sampler_release(SamplerHandle *);
+extern Reply *bgb_sampler_draw_bsm(SamplerHandle *,uint64_t,size_t,uint64_t,size_t,uint32_t);
+extern Reply *bgb_sampler_simulate_tips(SamplerHandle *,uint64_t,size_t,uint64_t,size_t);
+static void finalize_sampler(SEXP ptr){
+ SamplerHandle *p=(SamplerHandle*)R_ExternalPtrAddr(ptr);R_ClearExternalPtr(ptr);
+ if(p)bgb_sampler_release(p);
+}
+static SamplerHandle *checked_sampler(SEXP ptr){
+ if(TYPEOF(ptr)!=EXTPTRSXP || R_ExternalPtrTag(ptr)!=Rf_install("bgb_v12_sampler"))
+  Rf_error("invalid PreparedTreeSampler handle");
+ SamplerHandle *p=(SamplerHandle*)R_ExternalPtrAddr(ptr);
+ if(!p)Rf_error("PreparedTreeSampler is closed");
+ return p;
+}
+static uint64_t exact_uint(SEXP value,const char *name,double low,double high){
+ if(XLENGTH(value)!=1 || TYPEOF(value)==LGLSXP)Rf_error("invalid %s",name);
+ double x=Rf_asReal(value);
+ if(!R_FINITE(x)||x!=floor(x)||x<low||x>high)Rf_error("invalid %s",name);
+ return (uint64_t)x;
+}
+static SEXP c_bgb_sampler_prepare(SEXP args,SEXP roots,SEXP condition){
+ int code=Rf_asInteger(condition);
+ if(code<0||code>2)Rf_error("invalid simulation conditioning");
+ const double **p;size_t *lens;SEXP keep;numeric_buffers(args,&p,&lens,&keep);
+ SEXP weights=PROTECT(Rf_coerceVector(roots,REALSXP));
+ SEXP ptr=PROTECT(R_MakeExternalPtr(NULL,Rf_install("bgb_v12_sampler"),R_NilValue));
+ R_RegisterCFinalizerEx(ptr,finalize_sampler,TRUE);
+ int blas_threads=blas_enter();
+ SamplerHandle *sampler=bgb_sampler_prepare(p,lens,(size_t)XLENGTH(args),REAL(weights),(size_t)XLENGTH(weights),(uint32_t)code);
+ blas_leave(blas_threads);
+ const char *failure=bgb_sampler_error(sampler);
+ if(failure){char msg[1024];snprintf(msg,sizeof(msg),"%s",failure);bgb_sampler_release(sampler);UNPROTECT(3);Rf_error("%s",msg);}
+ R_SetExternalPtrAddr(ptr,sampler);UNPROTECT(3);return ptr;
+}
+static SEXP checked_sampler_reply(Reply *reply){
+ const char *failure=bgb_result_error(reply);
+ if(failure){char msg[1024];snprintf(msg,sizeof(msg),"%s",failure);bgb_result_free(reply);Rf_error("%s",msg);}
+ return R_UnwindProtect(copy_reply,reply,free_reply,reply,NULL);
+}
+static SEXP c_bgb_sampler_draw(SEXP ptr,SEXP start,SEXP count,SEXP seed,SEXP threads,SEXP rejection){
+ SamplerHandle *sampler=checked_sampler(ptr);
+ uint64_t first=exact_uint(start,"start",1,9007199254740991.0), s=exact_uint(seed,"seed",0,9007199254740991.0);
+ size_t n=(size_t)exact_uint(count,"num_maps",1,1000000), nth=(size_t)exact_uint(threads,"num_threads",1,256);
+ int r=Rf_asInteger(rejection);if(r<0||r>1)Rf_error("invalid rejection mode");
+ int blas_threads=blas_enter();
+ Reply *reply=bgb_sampler_draw_bsm(sampler,first,n,s,nth,(uint32_t)r);
+ blas_leave(blas_threads);return checked_sampler_reply(reply);
+}
+static SEXP c_bgb_sampler_simulate(SEXP ptr,SEXP start,SEXP count,SEXP seed,SEXP threads){
+ SamplerHandle *sampler=checked_sampler(ptr);
+ uint64_t first=exact_uint(start,"start",1,9007199254740991.0), s=exact_uint(seed,"seed",0,9007199254740991.0);
+ size_t n=(size_t)exact_uint(count,"n_reps",1,1000000), nth=(size_t)exact_uint(threads,"num_threads",1,256);
+ int blas_threads=blas_enter();
+ Reply *reply=bgb_sampler_simulate_tips(sampler,first,n,s,nth);
+ blas_leave(blas_threads);return checked_sampler_reply(reply);
+}
+static SEXP c_bgb_sampler_release(SEXP ptr){
+ if(TYPEOF(ptr)!=EXTPTRSXP || R_ExternalPtrTag(ptr)!=Rf_install("bgb_v12_sampler"))Rf_error("invalid PreparedTreeSampler handle");
+ finalize_sampler(ptr);return R_NilValue;
 }
 /* Only the main R thread enters this RNG scope. The callbacks use no R
  * allocation, error, or interrupt APIs while the Rust stack is live. */
@@ -230,6 +321,11 @@ static SEXP c_bgb_bsm_products(SEXP a,SEXP l,SEXP r,SEXP w) {
 }
 
 static const R_CallMethodDef entries[]={
+ {"c_bgb_tree_contract",(DL_FUNC)&c_bgb_tree_contract,7},
+ {"c_bgb_sampler_prepare",(DL_FUNC)&c_bgb_sampler_prepare,3},
+ {"c_bgb_sampler_draw",(DL_FUNC)&c_bgb_sampler_draw,6},
+ {"c_bgb_sampler_simulate",(DL_FUNC)&c_bgb_sampler_simulate,5},
+ {"c_bgb_sampler_release",(DL_FUNC)&c_bgb_sampler_release,1},
  {"c_bgb_bsm_products",(DL_FUNC)&c_bgb_bsm_products,4},
  {"c_bgb_bsm_legacy",(DL_FUNC)&c_bgb_bsm_legacy,6},
  {"c_bgb_m0_info",(DL_FUNC)&c_bgb_m0_info,0},

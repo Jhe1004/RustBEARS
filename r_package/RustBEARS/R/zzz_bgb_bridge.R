@@ -1,6 +1,6 @@
 # GPL >= 2. Private bridge; public signatures remain in the original R shell.
 .bgb_precision <- function() {
-    value<-tolower(gsub('_','',getOption('RustBEARS.precision',getOption('BioGeoBEARS.precision','LegacyF32')),fixed=TRUE))
+    value<-tolower(gsub('_','',getOption('RustBEARS.precision',getOption('BioGeoBEARS.precision','StrictF64')),fixed=TRUE))
     if(length(value)!=1L||!value %in% c('legacyf32','strictf64'))stop('Invalid RustBEARS.precision / BioGeoBEARS.precision option')
     if(value=='strictf64')return(1L)
     fused<-getOption('RustBEARS.legacy_fma',getOption('BioGeoBEARS.legacy_fma',grepl('aarch64|arm64',R.version$arch)))
@@ -8,6 +8,15 @@
     if(fused)2L else 0L
 }
 .bgb_bsm_engine <- function() getOption('RustBEARS.BSM.engine', getOption('BioGeoBEARS.BSM.engine'))
+.bgb_detect_cores <- function(requested=NULL) {
+    detected<-parallel::detectCores()
+    if(length(detected)==1L&&is.finite(detected)&&detected>=1)return(as.integer(detected))
+    # Restricted containers may not expose the hardware count. Honor a valid
+    # explicit budget instead of making an NA comparison or creating a pool.
+    if(length(requested)==1L&&is.numeric(requested)&&is.finite(requested)&&requested>=1&&requested<=256)
+        return(as.integer(requested))
+    1L
+}
 .bgb_stratified_engine <- function() getOption('RustBEARS.stratified.engine', getOption('BioGeoBEARS.stratified.engine'))
 trim <- function(s) base::trimws(s)
 .bgb_composite_optim <- function(par, fn, ..., method, lower, upper, control) {

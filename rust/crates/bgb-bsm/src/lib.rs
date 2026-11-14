@@ -13,4 +13,4 @@ pub struct Event {
 }
 
 mod tree;
-pub use tree::{sample_tree, LayerInput, SegmentInput, TreeInput};
+pub use tree::{sample_tree, LayerInput, PreparedTreeSampler, SegmentInput, TreeInput};

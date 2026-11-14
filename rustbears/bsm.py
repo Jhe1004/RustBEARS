@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ._ffi import kernel
+from ._ffi import kernel, PreparedSampler
 from .operators import _states, rcpp_states_list_to_DEmat
 
 _EVENT_TYPES = "deajysvt"
@@ -173,10 +173,17 @@ def run_bsm(fit, num_maps=100, mode="uniformization", num_threads=1, seed=12345)
             raise ValueError(f"invalid {name}")
     num_maps, num_threads, seed = int(num_maps), int(num_threads), int(seed)
     m=fit.model
-    steps,layers,hooks,fixes,segments=_steps(m,fit.params)
-    raw=kernel(26,[m.tree.tip_count,m.tree.root,num_maps,seed,num_threads,mode=="rejection"],
-               *_states(m.states),m.tips,steps,m.tree.ages,layers,hooks,fixes,segments,
-               *_layers(m,fit.params),precision=m.precision)
+    if getattr(m,"_contract_native",False):
+        from .uncertainty.simulate import sampler_buffers
+        m._require_tier1a()
+        m._validate_contract_params(fit.params,force=True)
+        with PreparedSampler(sampler_buffers(m,fit.params),m.root_sampling_probs,0) as sampler:
+            raw=sampler.draw(1,num_maps,seed,num_threads,bsm=True,rejection=mode=="rejection")
+    else:
+        steps,layers,hooks,fixes,segments=_steps(m,fit.params)
+        raw=kernel(26,[m.tree.tip_count,m.tree.root,num_maps,seed,num_threads,mode=="rejection"],
+                   *_states(m.states),m.tips,steps,m.tree.ages,layers,hooks,fixes,segments,
+                   *_layers(m,fit.params),precision=m.precision)
     clado,ana=_frame(raw[0],_CLADO,m),_frame(raw[1],_ANA,m)
     return BSMResult(clado,ana,count_ana_clado_events(clado,ana,m.areas,num_maps),num_maps)
 

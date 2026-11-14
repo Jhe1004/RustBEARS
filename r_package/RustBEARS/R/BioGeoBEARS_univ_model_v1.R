@@ -1345,7 +1345,7 @@ bears_optim_run <- function(BioGeoBEARS_run_object = define_BioGeoBEARS_run(), s
 		# than using mcmapply, mclapply, etc...
 		#require("parallel") #<- do this higher up
 
-		num_cores_computer_has = detectCores()
+		num_cores_computer_has = .bgb_detect_cores(num_cores_to_use)
 		txt = paste0("Your computer has ", num_cores_computer_has, " cores.")
 		cat("\n")
 		cat(txt)
@@ -1395,7 +1395,7 @@ bears_optim_run <- function(BioGeoBEARS_run_object = define_BioGeoBEARS_run(), s
 		} else {
 		# You are using R.app and clusters don't work...
 
-		num_cores_computer_has = detectCores()
+		num_cores_computer_has = .bgb_detect_cores(num_cores_to_use)
 		txt = paste0("Your computer has ", num_cores_computer_has, " cores.")
 		cat("\n")
 		cat(txt)

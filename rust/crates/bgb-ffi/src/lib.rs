@@ -2,6 +2,7 @@
 // Indexed loops intentionally preserve the reference reduction order.
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 mod bsm;
+mod sampler;
 use bgb_core::{unpack_states, PrecisionMode};
 use bgb_numerics::{ActionPlan, Matrix};
 use std::cell::RefCell;
@@ -636,4 +637,63 @@ pub extern "C" fn bgb_dgemm_registered() -> bool {
 #[no_mangle]
 pub extern "C" fn bgb_register_dgesv(function: Option<bgb_numerics::runtime_blas::Dgesv>) {
     bgb_numerics::runtime_blas::register_solve(function);
+}
+
+/// Evaluate a Tier-1a probability contract using a live single-layer context.
+/// # Safety
+/// The context is uniquely borrowed for this call; buffers and optional tips
+/// must remain readable for their declared lengths until return.
+#[no_mangle]
+pub unsafe extern "C" fn bgb_context_evaluate_contract(
+    p: *mut ContextHandle,
+    ptrs: *const *const f64,
+    lens: *const usize,
+    n: usize,
+    precision: u32,
+    contract: u32,
+    tips: *const f64,
+    tip_len: usize,
+) -> *mut Reply {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if p.is_null() {
+            return Err("null tree context".to_string());
+        }
+        let context = unsafe { (*p).context.as_mut() }.ok_or("invalid tree context")?;
+        let args = unsafe { buffers(ptrs, lens, n) };
+        let replacement = if tip_len == 0 {
+            &[][..]
+        } else {
+            if tips.is_null() {
+                return Err("null replacement tips".into());
+            }
+            unsafe { std::slice::from_raw_parts(tips, tip_len) }
+        };
+        let mode = match precision {
+            0 | 2 => PrecisionMode::LegacyF32,
+            1 => PrecisionMode::StrictF64,
+            _ => return Err("invalid precision".into()),
+        };
+        match context {
+            Context::Single(tree) => {
+                tree.evaluate_contract(&args, mode, precision == 2, contract, replacement)
+            }
+            Context::Stratified(_) => {
+                Err("UnsupportedModelContractError: Tier-1a supports single-layer contexts".into())
+            }
+        }
+    }));
+    Box::into_raw(Box::new(match result {
+        Ok(Ok(buffers)) => Reply {
+            buffers,
+            error: None,
+        },
+        Ok(Err(e)) => Reply {
+            buffers: Vec::new(),
+            error: Some(CString::new(e.replace('\0', " ")).unwrap()),
+        },
+        Err(_) => Reply {
+            buffers: Vec::new(),
+            error: Some(CString::new("contract likelihood panicked").unwrap()),
+        },
+    }))
 }

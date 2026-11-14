@@ -55,6 +55,19 @@ def library():
         f.argtypes, f.restype = args, returns
     if dll.bgb_m0_abi_version() != 1:
         raise ImportError("unsupported RustBEARS native ABI")
+    # New entry points are additive: legacy-only installations can still run
+    # all original operations, while new contracts fail explicitly.
+    for name,args,returns in (
+        ("bgb_context_evaluate_contract",[ptr,*_ARGS,ct.c_uint,ct.c_uint,_P,size],ptr),
+        ("bgb_sampler_prepare",[*_ARGS,_P,size,ct.c_uint],ptr),
+        ("bgb_sampler_error",[ptr],ct.c_char_p),
+        ("bgb_sampler_release",[ptr],None),
+        ("bgb_sampler_draw_bsm",[ptr,ct.c_uint64,size,ct.c_uint64,size,ct.c_uint],ptr),
+        ("bgb_sampler_simulate_tips",[ptr,ct.c_uint64,size,ct.c_uint64,size],ptr),
+    ):
+        if hasattr(dll,name):
+            f=getattr(dll,name)
+            f.argtypes,f.restype=args,returns
     _register_blas(dll)
     return dll
 
@@ -139,13 +152,23 @@ class CompiledContext:
             self.close()
             raise ValueError(error.decode("utf-8", errors="replace"))
 
-    def evaluate(self, buffers, precision):
+    def evaluate(self, buffers, precision, *, contract=None, tip_likelihoods=None):
         arrays, ptrs, lengths = _buffers(buffers)
         with self._lock:
             if self._ptr is None:
                 raise RuntimeError("compiled context is closed")
-            reply = self._lib.bgb_context_evaluate(
-                self._ptr, ptrs, lengths, len(arrays), _PRECISION[precision])
+            if contract is None and tip_likelihoods is None:
+                reply = self._lib.bgb_context_evaluate(
+                    self._ptr, ptrs, lengths, len(arrays), _PRECISION[precision])
+            else:
+                from .uncertainty.contracts import CONTRACTS
+                if not hasattr(self._lib,"bgb_context_evaluate_contract"):
+                    raise RuntimeError("rebuild the native RustBEARS library to enable v1.2 contracts")
+                tips=np.require(_EMPTY if tip_likelihoods is None else tip_likelihoods,
+                                dtype=np.float64,requirements=("F","A")).ravel(order="F")
+                reply=self._lib.bgb_context_evaluate_contract(self._ptr,ptrs,lengths,len(arrays),
+                    _PRECISION[precision],CONTRACTS[contract or "legacy_unconditioned"],
+                    tips.ctypes.data_as(_P),tips.size)
             return _reply(self._lib, reply)
 
     def close(self):
@@ -181,3 +204,73 @@ def context_stats():
     library().bgb_context_stats(values)
     return dict(created=values[0] + values[2], dropped=values[1] + values[3],
                 single_created=values[0], stratified_created=values[2])
+
+
+def _integer(value,name,minimum=0,maximum=(1<<64)-1):
+    if isinstance(value,(bool,np.bool_)) or not isinstance(value,(int,np.integer)) or not minimum<=int(value)<=maximum:
+        raise ValueError(f"{name} must be an integer between {minimum} and {maximum}")
+    return int(value)
+
+
+class PreparedSampler:
+    """Unique ownership of fixed-parameter native sampling precomputation."""
+
+    def __init__(self,buffers,root_weights,conditioning):
+        self._ptr=None
+        self._lock=threading.RLock()
+        self._lib=library()
+        if not hasattr(self._lib,"bgb_sampler_prepare"):
+            raise RuntimeError("rebuild the native RustBEARS library to enable prepared sampling")
+        arrays,ptrs,lengths=_buffers(buffers)
+        root=np.require(root_weights,dtype=np.float64,requirements=("F","A"))
+        self._ptr=self._lib.bgb_sampler_prepare(ptrs,lengths,len(arrays),root.ctypes.data_as(_P),
+                                               root.size,conditioning)
+        if not self._ptr:
+            raise MemoryError("Rust returned no sampler")
+        error=self._lib.bgb_sampler_error(self._ptr)
+        if error:
+            self.close()
+            raise ValueError(error.decode("utf-8",errors="replace"))
+
+    def draw(self,start,count,seed,num_threads=1,*,bsm=False,rejection=False):
+        start=_integer(start,"start",1)
+        count=_integer(count,"count",1,1_000_000)
+        seed=_integer(seed,"seed")
+        threads=_integer(num_threads,"num_threads",1,256)
+        if start+count-1>(1<<64)-1:
+            raise ValueError("sampling index range overflows u64")
+        with self._lock:
+            if self._ptr is None:
+                raise RuntimeError("prepared sampler is closed")
+            if bsm:
+                reply=self._lib.bgb_sampler_draw_bsm(self._ptr,start,count,seed,threads,int(rejection))
+            else:
+                reply=self._lib.bgb_sampler_simulate_tips(self._ptr,start,count,seed,threads)
+            return _reply(self._lib,reply)
+
+    def close(self):
+        with self._lock:
+            if self._ptr is not None:
+                self._lib.bgb_sampler_release(self._ptr)
+                self._ptr=None
+
+    def __enter__(self):
+        if self._ptr is None:
+            raise RuntimeError("prepared sampler is closed")
+        return self
+
+    def __exit__(self,*_):
+        self.close()
+
+    def __copy__(self):
+        raise TypeError("PreparedSampler owns a native handle and cannot be copied")
+
+    def __deepcopy__(self,memo):
+        raise TypeError("PreparedSampler owns a native handle and cannot be deep-copied")
+
+    def __reduce__(self):
+        raise TypeError("PreparedSampler owns a native handle and cannot be pickled")
+
+    def __del__(self):
+        if getattr(self,"_ptr",None) is not None:
+            self.close()

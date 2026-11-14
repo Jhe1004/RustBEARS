@@ -6,6 +6,7 @@ r_package/RustBEARS/src/*.dll
 r_package/RustBEARS/src/*.dylib
 r_package/RustBEARS/src/*.a
 r_package/RustBEARS/src/Makevars.win
+r_package/RustBEARS/src/Makevars
 
 # Python build & compiled native libraries
 build/

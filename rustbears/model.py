@@ -12,6 +12,7 @@ from .io import read_geog, read_layer_matrices, read_newick, read_times
 from .operators import _priors, _states, rcpp_areas_list_to_states_list, rcpp_states_list_to_DEmat
 from .traits import TraitModel
 from .stratified import compile_sections, config_single, effective_times, section_the_tree
+from .uncertainty.contracts import CONTRACTS, RootPriorSpec, UnsupportedModelContractError
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,8 @@ class ModelConfig:
     min_branchlength: float = 1e-6
     force_sparse: bool = False
     rootedge: bool = False
+    likelihood_conditioning: str = "legacy_unconditioned"
+    root_prior: RootPriorSpec | None = None
 
 
 @dataclass
@@ -158,6 +161,10 @@ class EvaluationResult:
     tree: object = field(repr=False)
     downpass_likes_branch_top: np.ndarray | None = field(default=None,repr=False)
     downpass_table: np.ndarray | None = field(default=None,repr=False)
+    likelihood_conditioning: str = "legacy_unconditioned"
+    precision_mode: str = "strict_f64"
+    root_prior_vec: np.ndarray | None = field(default=None,repr=False)
+    log_tip_survival_prob: float | None = None
 
     def to_dataframe(self):
         import pandas as pd
@@ -186,6 +193,22 @@ class FitResult:
     message: str = ""
     strict_proposal: dict | None = None
 
+    @property
+    def likelihood_conditioning(self):
+        return self.evaluation.likelihood_conditioning
+
+    @property
+    def precision_mode(self):
+        return self.evaluation.precision_mode
+
+    @property
+    def root_prior_vec(self):
+        return self.evaluation.root_prior_vec
+
+    @property
+    def log_tip_survival_prob(self):
+        return self.evaluation.log_tip_survival_prob
+
     def summary(self):
         from .stats import compare_models
         return compare_models([self])
@@ -203,6 +226,17 @@ class BioGeoBEARS:
     def __init__(self, tree, geog=None, model="DEC", **options):
         self.config=tree if isinstance(tree,ModelConfig) else ModelConfig(tree,geog,model,**options)
         c=self.config
+        if c.likelihood_conditioning not in CONTRACTS:
+            raise ValueError("unknown likelihood_conditioning")
+        self.likelihood_conditioning=c.likelihood_conditioning
+        self.root_prior_spec=c.root_prior or RootPriorSpec(
+            "legacy_flat_weights" if self.likelihood_conditioning=="legacy_unconditioned" else "uniform_nonnull")
+        if not isinstance(self.root_prior_spec,RootPriorSpec):
+            raise TypeError("root_prior must be a RootPriorSpec")
+        if self.likelihood_conditioning=="unconditional_complete" and not c.allow_null_tips:
+            raise ValueError("unconditional_complete requires allow_null_tips=True")
+        if self.likelihood_conditioning=="tip_survival" and c.allow_null_tips:
+            raise ValueError("tip_survival requires allow_null_tips=False")
         self.tree=read_newick(c.tree)
         self.geog=read_geog(c.geog)
         self.model=model_template(c.model) if isinstance(c.model,str) else c.model
@@ -300,6 +334,54 @@ class BioGeoBEARS:
                                          self.na,self.fixes,self.fixlikes,c.min_branchlength,
                                          len(self.trait.labels) if self.trait else 0)
 
+        self.root_likelihood_weights,self.root_sampling_probs,self.root_weight_log_scale=(
+            self.root_prior_spec.resolve(self.states,self.ranges,self.likelihood_conditioning))
+        self.root_prior_vec=self.root_sampling_probs
+        self._contract_native=(self.likelihood_conditioning!="legacy_unconditioned" or c.root_prior is not None)
+        if self._contract_native:
+            self._require_tier1a()
+            self._geometry[7]=self.root_likelihood_weights
+
+    def _require_tier1a(self):
+        """Keep new probability contracts within the independently tested core."""
+        c=self.config
+        unsupported=[]
+        if self.sections is not None: unsupported.append("time stratification")
+        if self.trait is not None: unsupported.append("trait models")
+        if self.fixes: unsupported.append("fixed internal observations")
+        if c.rootedge: unsupported.append("root edges")
+        if c.use_ambiguities or self.geog.ambiguous: unsupported.append("ambiguous tip observations")
+        if np.any(self.tree.lengths[self.tree.edges[:,1]]<c.min_branchlength):
+            unsupported.append("fossil-hook branches")
+        if not self.null: unsupported.append("include_null_range=False")
+        if self.model.name not in ("DEC","DEC+J"): unsupported.append("models other than DEC/DEC+J")
+        if any(getattr(c,k) is not None for k in ("areas_allowed","areas_adjacency","distances",
+               "envdistances","dispersal_multipliers","area_of_areas")):
+            unsupported.append("spatial modifiers")
+        p=self.model.resolve()
+        if any(p[k]!=v or self.model.params[k].type=="free"
+               for k,v in {"a":0,"b":1,"x":0,"n":0,"w":1,"u":0}.items()):
+            unsupported.append("nonstandard rate modifiers")
+        base=model_template(self.model.name)
+        if any(self.model.params[k]!=base.params[k] for k in base.params if k not in ("d","e","j")):
+            unsupported.append("nonstandard cladogenesis parameters")
+        if unsupported:
+            raise UnsupportedModelContractError("Tier-1a does not support "+", ".join(unsupported))
+
+    def _validate_contract_params(self,params,*,force=False):
+        if not force and self.likelihood_conditioning=="legacy_unconditioned" and not self._contract_native:
+            return
+        if params["d"]<0 or params["e"]<0 or not 0<=params["j"]<3:
+            raise ValueError("Tier-1a requires d,e >= 0 and 0 <= j < 3")
+        expected=self.model.resolve({k:params[k] for k in ("d","e","j")})
+        if any(params[k]!=expected[k] for k in params if k not in ("d","e","j")):
+            raise UnsupportedModelContractError("parameter overrides cannot enable unvalidated Tier-1a modifiers")
+
+    def prepared_likelihood(self,params=None,*,num_threads=1):
+        """Compile once for repeated tip patterns at fixed model parameters."""
+        self._require_tier1a()
+        return PreparedLikelihood(self,params,num_threads=num_threads)
+
     def _layer_arrays(self, i, p, *, upper=False):
         env=self.env[0] if upper and self.sections else self.env[i]
         dist=self.dist[i]**p["x"] * env**p["n"] * self.manual[i]**p["w"]
@@ -367,7 +449,8 @@ class BioGeoBEARS:
     def _context(self,num_threads):
         return CompiledContext(self._geometry,stratified=self.sections is not None,num_threads=num_threads)
 
-    def _evaluate(self, ctx, params, full, precision=None):
+    def _evaluate(self, ctx, params, full, precision=None, tip_likelihoods=None):
+        self._validate_contract_params(params)
         if self.sections:
             args=[[full,full,1,1,1],self.tips]
             for i in range(len(self.times)):
@@ -380,7 +463,15 @@ class BioGeoBEARS:
             args=self._layer_buffers(0,params,full,full)
             if params["b"] != 1:
                 args.append([params["b"]])
-        out=ctx.evaluate(args,self.precision if precision is None else precision)
+        active_precision=self.precision if precision is None else precision
+        if self._contract_native or tip_likelihoods is not None:
+            out=ctx.evaluate(args,active_precision,contract=self.likelihood_conditioning,
+                             tip_likelihoods=tip_likelihoods)
+            survival=float(out[0][-1]) if self.likelihood_conditioning=="tip_survival" else None
+        else:
+            out=ctx.evaluate(args,active_precision)
+            survival=None
+        ctx.last_log_tip_survival_prob=survival
         lnL=float(out[0][0])
         if not full:
             return lnL
@@ -398,14 +489,19 @@ class BioGeoBEARS:
                 bottom=bottom/bottom.sum(axis=1,keepdims=True)
                 top=top/top.sum(axis=1,keepdims=True)
             down_table=None
-        return EvaluationResult(lnL,top,bottom,cond,down,self.states,self.ranges,self.tree,td,down_table)
+        return EvaluationResult(lnL,top,bottom,cond,down,self.states,self.ranges,self.tree,td,down_table,
+            self.likelihood_conditioning,active_precision,self.root_sampling_probs.copy(),survival)
 
     def evaluate(self, params=None, *, num_threads=1, calc_ancprobs=True):
         p=self.model.resolve(params)
         with self._context(num_threads) as ctx:
             value=self._evaluate(ctx,p,calc_ancprobs)
-        return value if calc_ancprobs else EvaluationResult(
-            value,None,None,None,None,self.states,self.ranges,self.tree)
+            survival=getattr(ctx,"last_log_tip_survival_prob",None)
+        if calc_ancprobs:
+            return value
+        return EvaluationResult(value,None,None,None,None,self.states,self.ranges,self.tree,
+            likelihood_conditioning=self.likelihood_conditioning,precision_mode=self.precision,
+            root_prior_vec=self.root_sampling_probs.copy(),log_tip_survival_prob=survival)
 
     def fit(self, optimizer="L-BFGS-B", num_threads=1, *, initial=None, seed=1, maxiter=500):
         free=self.model.free
@@ -437,3 +533,44 @@ class BioGeoBEARS:
         aicc=aic+2*k*(k+1)/(n-k-1) if n>k+1 else float("inf")
         return FitResult(evaluation.lnL,p,k,aic,aicc,search.evaluations,
                          search.converged,evaluation,self,search.message,strict_proposal)
+
+
+class PreparedLikelihood:
+    """Owned context for fixed-parameter enumeration; tip order follows the tree."""
+
+    def __init__(self,model,params=None,*,num_threads=1):
+        self.model=model
+        self.params=model.model.resolve(params)
+        model._validate_contract_params(self.params)
+        self.context=model._context(num_threads)
+
+    def evaluate(self,tip_likelihoods=None,*,calc_ancprobs=False):
+        tips=self.model.tips if tip_likelihoods is None else np.asarray(tip_likelihoods,dtype=float)
+        if tips.shape!=self.model.tips.shape or not np.isfinite(tips).all() or np.any(tips<0):
+            raise ValueError("tip likelihoods must be a finite nonnegative n_tips by n_states matrix")
+        return self.model._evaluate(self.context,self.params,calc_ancprobs,tip_likelihoods=tips)
+
+    def evaluate_tip_states(self,tip_states):
+        indices=np.asarray(tip_states)
+        if indices.ndim!=2 or indices.shape[1]!=self.model.tree.tip_count or indices.dtype.kind not in "iu":
+            raise ValueError("tip_states must be an integer n_patterns by n_tips matrix")
+        if np.any(indices<0) or np.any(indices>=len(self.model.states)):
+            raise ValueError("tip state index outside the model state space")
+        out=np.empty(len(indices))
+        tips=np.zeros_like(self.model.tips,order="F")
+        rows=np.arange(self.model.tree.tip_count)
+        for i,pattern in enumerate(indices):
+            tips.fill(0)
+            tips[rows,pattern]=1
+            out[i]=self.evaluate(tips)
+        return out
+
+    def close(self):
+        self.context.close()
+
+    def __enter__(self):
+        self.context.__enter__()
+        return self
+
+    def __exit__(self,*exc):
+        self.close()

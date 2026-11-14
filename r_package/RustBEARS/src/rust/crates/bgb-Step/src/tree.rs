@@ -371,6 +371,103 @@ impl CompiledModelContext {
         mode: PrecisionMode,
         fused: bool,
     ) -> Result<Vec<Vec<f64>>, String> {
+        self.evaluate_with_contract(a, mode, fused, 0)
+    }
+
+    /// Tier-1a likelihood contracts. 0 preserves the legacy score; 1 conditions
+    /// on nonempty tips; 2 completes the absorbing empty-state split.
+    /// A supplied replacement tip matrix is column-major, in the existing state order,
+    /// and applies only to this call. An empty slice uses the compiled tip data.
+    pub fn evaluate_contract(
+        &mut self,
+        a: &[&[f64]],
+        mode: PrecisionMode,
+        fused: bool,
+        contract: u32,
+        replacement_tips: &[f64],
+    ) -> Result<Vec<Vec<f64>>, String> {
+        if contract > 2 {
+            return Err("unknown likelihood contract".into());
+        }
+        if contract != 0 {
+            if self.null != 1
+                || self.kind != 1
+                || self.trait_len != 0
+                || self.root_edge.is_some()
+                || self.fixed.iter().any(|v| !v.is_empty())
+                || self.mask.iter().any(|v| !v)
+                || self.steps.iter().any(|s| self.hook(s))
+            {
+                return Err("UnsupportedModelContractError: Tier-1a requires a single layer, a complete fixed state space, no root edge, fixed nodes, traits or fossil hooks".into());
+            }
+            if mode != PrecisionMode::StrictF64 {
+                return Err("probability contracts require StrictF64".into());
+            }
+            let total: f64 = self.prior.iter().sum();
+            if self.prior.len() != self.n
+                || self.prior.iter().any(|x| !x.is_finite() || *x < 0.0)
+                || (total - 1.0).abs() > 1e-12
+                || (contract == 1 && self.prior[0] != 0.0)
+            {
+                return Err(
+                    "probability contract requires an explicit normalized root prior".into(),
+                );
+            }
+        }
+        if !replacement_tips.is_empty() {
+            if replacement_tips.len() != self.tips * self.n
+                || replacement_tips.iter().any(|x| !x.is_finite() || *x < 0.0)
+            {
+                return Err("invalid replacement tip likelihoods".into());
+            }
+        }
+        let candidate_tips = if replacement_tips.is_empty() {
+            &self.tip_likes[..]
+        } else {
+            replacement_tips
+        };
+        if contract != 0 {
+            for i in 0..self.tips {
+                if !(0..self.n).any(|s| candidate_tips[i + self.tips * s] > 0.0)
+                    || (contract == 1 && candidate_tips[i] != 0.0)
+                {
+                    return Err("tip likelihoods violate probability contract".into());
+                }
+            }
+        }
+        if !self.prior.is_empty()
+            && (self.prior.len() != self.n
+                || self.prior.iter().any(|x| !x.is_finite() || *x < 0.0)
+                || self.prior.iter().sum::<f64>() <= 0.0)
+        {
+            return Err("invalid root likelihood weights".into());
+        }
+        // Internal mode 3 keeps the raw score but fixes custom-prior uppass and
+        // makes structural zeros explicit. The original evaluate() stays mode 0.
+        let original_tips = if replacement_tips.is_empty() {
+            None
+        } else {
+            Some(std::mem::replace(
+                &mut self.tip_likes,
+                replacement_tips.to_vec(),
+            ))
+        };
+        let result =
+            self.evaluate_with_contract(a, mode, fused, if contract == 0 { 3 } else { contract });
+        // Restore before returning both successful evaluations and every Result error.
+        if let Some(original) = original_tips {
+            self.tip_likes = original;
+        }
+        result
+    }
+
+    fn evaluate_with_contract(
+        &mut self,
+        a: &[&[f64]],
+        mode: PrecisionMode,
+        fused: bool,
+        contract: u32,
+    ) -> Result<Vec<Vec<f64>>, String> {
         if a.len() == 23 {
             let [power] = a[22] else {
                 return Err("invalid branch length exponent".into());
@@ -380,7 +477,7 @@ impl CompiledModelContext {
             }
             let scaled = self.lengths.iter().map(|x| x.powf(*power)).collect();
             let original = std::mem::replace(&mut self.lengths, scaled);
-            let result = self.evaluate(&a[..22], mode, fused);
+            let result = self.evaluate_with_contract(&a[..22], mode, fused, contract);
             self.lengths = original;
             return result;
         }
@@ -391,7 +488,7 @@ impl CompiledModelContext {
         let ancprobs = c[2] != 0.0;
         let full = c[3] != 0.0;
         let prop = build_propagator(self.n, self.q_template.as_ref(), a, mode, fused)?;
-        let events = build_clado(
+        let mut events = build_clado(
             self.n,
             self.null,
             self.kind,
@@ -400,17 +497,41 @@ impl CompiledModelContext {
             a,
             mode,
         )?;
+        events.probability_contract = contract != 0;
+        events.complete_empty = contract == 2;
+        let log_survival = if contract == 1 {
+            let mut survival_tips = vec![1.0; self.tips * self.n];
+            survival_tips[..self.tips].fill(0.0);
+            let observed = std::mem::replace(&mut self.tip_likes, survival_tips);
+            let pass = self.downpass(&prop, &events, c[1] != 0.0, false);
+            self.tip_likes = observed;
+            pass?;
+            let value = sum(&self.totals.iter().map(|v| v.ln()).collect::<Vec<_>>());
+            if !value.is_finite() {
+                return Err("zero or invalid tip-survival probability".into());
+            }
+            value
+        } else {
+            f64::NAN
+        };
         let (rootcond, rootbottom) = self.downpass(&prop, &events, c[1] != 0.0, ancprobs)?;
         if self.totals.iter().any(|x| *x < 0.0) {
             return Err("negative likelihood requires original R warning semantics".into());
         }
         let logs: Vec<_> = self.totals.iter().map(|x| x.ln()).collect();
-        let ln_l = sum(&logs);
+        let ln_l = sum(&logs) - if contract == 1 { log_survival } else { 0.0 };
+        if contract != 0 && ancprobs && !ln_l.is_finite() {
+            return Err("ancestral probabilities are undefined for zero-probability data".into());
+        }
         if ancprobs {
             self.uppass(&prop, &events, None)?;
         }
         if !full {
-            return Ok(vec![vec![ln_l]]);
+            return Ok(vec![if contract == 0 {
+                vec![ln_l]
+            } else {
+                vec![ln_l, log_survival]
+            }]);
         }
         let nr = self.nodes + self.root_edge.is_some() as usize;
         let mut down = column_major(&self.down, self.nodes, self.n);
@@ -430,6 +551,9 @@ impl CompiledModelContext {
             out.push(column_major(&self.bottom, self.nodes, self.n));
             out.push(column_major(&self.upbot, self.nodes, self.n));
             out.push(column_major(&self.up, self.nodes, self.n));
+        }
+        if contract != 0 {
+            out[0].push(log_survival);
         }
         Ok(out)
     }
@@ -524,7 +648,12 @@ impl CompiledModelContext {
                 self.totals[st.anc] = total;
                 self.cond[st.anc * self.n..(st.anc + 1) * self.n].copy_from_slice(&v);
                 for j in 0..self.n {
-                    self.down[st.anc * self.n + j] = v[j] / total;
+                    self.down[st.anc * self.n + j] = if events.probability_contract && total == 0.0
+                    {
+                        0.0
+                    } else {
+                        v[j] / total
+                    };
                 }
                 if ancprobs {
                     self.bottom[st.left * self.n..(st.left + 1) * self.n].copy_from_slice(&l);
@@ -562,7 +691,11 @@ impl CompiledModelContext {
             self.up[root.clone()].copy_from_slice(top);
             self.upbot[root].copy_from_slice(bottom);
         } else {
-            self.up[root].fill(1.0 / self.n as f64);
+            if c.probability_contract && !self.prior.is_empty() {
+                self.up[root].copy_from_slice(&self.prior);
+            } else {
+                self.up[root].fill(1.0 / self.n as f64);
+            }
         }
         // Reverse wavefronts keep all mothers complete before their children.
         // Each record owns its arithmetic; commits never reduce floats across nodes.
@@ -803,6 +936,8 @@ struct Clado {
     kind: u32,
     method: u32,
     mode: PrecisionMode,
+    complete_empty: bool,
+    probability_contract: bool,
 }
 impl Clado {
     fn new(
@@ -853,11 +988,16 @@ impl Clado {
             kind,
             method,
             mode,
+            complete_empty: false,
+            probability_contract: false,
         })
     }
     fn split(&self, l: &[f64], r: &[f64]) -> Result<Vec<f64>, String> {
         let m = self.n - self.offset;
         let mut out = vec![0.0; self.n];
+        if self.complete_empty {
+            out[0] = l[0] * r[0];
+        }
         if self.kind == 3 {
             for a in 0..m {
                 let terms: Vec<_> = (0..m * m)
@@ -895,6 +1035,27 @@ impl Clado {
         hook: bool,
         want_left: bool,
     ) -> Result<Vec<f64>, String> {
+        if self.probability_contract {
+            let mut out = vec![0.0; self.n];
+            if self.complete_empty {
+                out[0] = anc[0] * left.map_or(1.0, |x| x[0]) * right.map_or(1.0, |x| x[0]);
+            }
+            for &(a, i, j, w) in &self.events {
+                let value = anc[a + self.offset]
+                    * left.map_or(1.0, |x| x[i + self.offset])
+                    * right.map_or(1.0, |x| x[j + self.offset])
+                    * w
+                    / self.up_rows[a];
+                out[if want_left { i } else { j } + self.offset] += value;
+            }
+            let total = sum(&out);
+            if total > 0.0 && total.is_finite() {
+                out.iter_mut().for_each(|x| *x /= total);
+            } else {
+                return Err("zero conditional ancestor mass".into());
+            }
+            return Ok(out);
+        }
         let count = if hook {
             self.hook_states
         } else {
@@ -947,5 +1108,92 @@ impl Clado {
             };
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod contract_context_tests {
+    use super::*;
+
+    fn fixture() -> (CompiledModelContext, Vec<Vec<f64>>) {
+        let geometry = [
+            vec![2.0, 2.0, 3.0, 1e-6, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0],
+            vec![2.0, 2.0, 0.0, 1.0],
+            vec![1.0, 2.0],
+            vec![0.0, 0.0, 1.0, 1.0],
+            vec![],
+            vec![],
+            vec![],
+            vec![0.0, 1.0],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![1.0, 1.0],
+        ];
+        let slices: Vec<_> = geometry.iter().map(Vec::as_slice).collect();
+        let context = CompiledModelContext::new(&slices, 1).unwrap();
+        let mut args = vec![vec![]; 22];
+        args[0] = vec![0.0; 4];
+        args[1] = vec![0.0, 0.2, 0.0, -0.2];
+        args[4] = vec![0.0];
+        args[5] = vec![0.0];
+        args[6] = vec![0.0];
+        args[7] = vec![1.0];
+        args[8] = vec![1.0];
+        args[10] = vec![0.0; 4];
+        (context, args)
+    }
+
+    fn score(
+        context: &mut CompiledModelContext,
+        args: &[&[f64]],
+        contract: u32,
+        tips: &[f64],
+    ) -> f64 {
+        context
+            .evaluate_contract(args, PrecisionMode::StrictF64, false, contract, tips)
+            .unwrap()[0][0]
+    }
+
+    #[test]
+    fn replacement_tips_apply_to_one_call_for_every_contract() {
+        let (mut context, args) = fixture();
+        let args: Vec<_> = args.iter().map(Vec::as_slice).collect();
+        for contract in 0..=2 {
+            let baseline = score(&mut context, &args, contract, &[]);
+            let replacement = score(&mut context, &args, contract, &[0.0, 0.0, 0.5, 0.7]);
+            assert!((replacement - baseline - 0.35_f64.ln()).abs() < 1e-14);
+            assert_eq!(score(&mut context, &args, contract, &[]), baseline);
+        }
+    }
+
+    #[test]
+    fn invalid_tips_and_evaluation_errors_leave_compiled_tips_unchanged() {
+        let (mut context, args) = fixture();
+        let args: Vec<_> = args.iter().map(Vec::as_slice).collect();
+        let baseline = score(&mut context, &args, 1, &[]);
+        // Valid dimensions and values, but forbidden empty tip mass for contract A.
+        assert!(context
+            .evaluate_contract(
+                &args,
+                PrecisionMode::StrictF64,
+                false,
+                1,
+                &[1.0, 1.0, 0.0, 0.0]
+            )
+            .is_err());
+        assert_eq!(score(&mut context, &args, 1, &[]), baseline);
+        // An error after the temporary replacement must also restore original tips.
+        assert!(context
+            .evaluate_contract(
+                &args[..21],
+                PrecisionMode::StrictF64,
+                false,
+                1,
+                &[0.0, 0.0, 0.5, 0.7]
+            )
+            .is_err());
+        assert_eq!(score(&mut context, &args, 1, &[]), baseline);
     }
 }
