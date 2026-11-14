@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/bgb-core", "crates/bgb-numerics", "crates/bgb-clado", "crates/bgb-Step", "crates/bgb-bsm", "crates/bgb-ffi"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-2.0-or-later"
+version = "1.1.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "unwind"

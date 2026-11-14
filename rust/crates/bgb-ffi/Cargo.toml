@@ -1,0 +1,20 @@
+[package]
+name = "bgb-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+bgb-core = { path = "../bgb-core" }
+bgb-numerics = { path = "../bgb-numerics" }
+bgb-clado = { path = "../bgb-clado" }
+
+bgb-step = { path = "../bgb-Step" }
+bgb-bsm = { path = "../bgb-bsm" }
+
+[features]
+r-blas = ["bgb-numerics/r-blas", "bgb-step/r-blas"]

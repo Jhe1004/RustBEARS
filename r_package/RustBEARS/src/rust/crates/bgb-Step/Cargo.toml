@@ -1,0 +1,15 @@
+[package]
+name = "bgb-step"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bgb-core = { path = "../bgb-core" }
+bgb-numerics = { path = "../bgb-numerics" }
+bgb-clado = { path = "../bgb-clado" }
+rayon = "1"
+
+[features]
+r-blas = ["bgb-numerics/r-blas"]

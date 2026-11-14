@@ -1,0 +1,5 @@
+graft rust
+prune rust/target
+global-exclude *.py[cod] .DS_Store .Rapp.history
+
+include LICENSE CITATION.cff NOTICE-Rust-port.md THIRD_PARTY_LICENSES.md CONTRIBUTING.md SECURITY.md README.md

@@ -1,0 +1,161 @@
+CHANGES in BioGeoBEARS VERSION 1.1.4
+
+NEW FEATURES
+
+    o changed README.md to install using remotes::install_github, rather than pak::pak which causes install issues/complexity
+    o added a /data/ directory to hold example objects
+    o added a few small utilities
+    o changed README.md to install using pak::pak, as devtools::install_github is deprecating
+    o various accumulated bug fixes (see GitHub commits)
+
+OTHER CHANGES
+
+    o removed dependencies on FD::maxent (now in rexpokit), devtools
+    o MultinomialCI is now a Suggests (currently off CRAN)
+
+
+
+CHANGES in BioGeoBEARS VERSION 1.1.3
+
+NEW FEATURES
+
+    o removed kexpmv from Suggests (this package no longer available on CRAN)
+    o various accumulated bug fixes (see GitHub commits)
+
+OTHER CHANGES
+
+    o none
+
+
+CHANGES in BioGeoBEARS VERSION 1.1
+
+NEW FEATURES
+
+    o added all code and features from PhyloWiki page
+    o put the PhyloWiki test scripts in as unit tests, with the testthat package
+
+OTHER CHANGES
+
+    o none
+
+
+CHANGES in BioGeoBEARS VERSION 0.23
+
+NEW FEATURES
+    o TODO: Cairo package for graphics; constraining multiple nodes; stochastic mapping
+
+	o added error check to read_PHYLIP_data() -- (checking for rows with less than the 
+	  specified number of characters/areas
+	
+	o edited example script so that 3-parameter "+J" models start with the ML results of the 
+	  2-parameter model. This should avoid situations where the LnL found during ML search of 
+	  the 3-parameter model is lower than the ML returned by the 2-parameter model.
+	
+    o added extract_params_from_BioGeoBEARS_results_object(), a function to extract free
+      parameter values, rather than using the plot_BioGeoBEARS_results() function to do
+      this.
+
+    o changed function name to be more accurate: get_perEvent_probs --> get_clado_perEvent_weights
+    
+    o fixed: optimx, optim usage and graphing
+
+    o fixed: re-sizing titles
+
+    o minor changes to graphing functions
+    
+    o better summary plot to screen for section_the_tree (and better double-checking / 
+      error check of this)
+      
+    o tiplikes_wDetectionModel returns scaled raw likelihoods if desired
+
+    o tiplikes_wDetectionModel returns likelihoods normalized by the maximum (i.e., some 
+      state gives likelihood=1 to the data, or LnL=0). This may help prevent underflow 
+      issues for large datasets
+
+    o tiplikes_wDetectionModel error check now internalized
+    
+    o tiplikes_wDetectionModel Now an option in both unstratified and stratified analyses
+
+BUG FIXES
+
+    o Fixed minor bugs in stratification, due to not excluding is_fossil==FALSE, and to 
+      calc_loglike_sp wrongly renormalizing tip input likelihoods passed from the 
+      stratification functions
+    o edited CITATION information
+
+OTHER CHANGES
+
+    o  issues: print_optim, warning for very small trees, check maxent01v parameterization (divide by mean)
+    o  check dispersal file, areas allowed file for correct number of areas
+    
+
+
+CHANGES in BioGeoBEARS VERSION 0.21
+
+NEW FEATURES
+
+    o added detection probability models
+    o added calculations of prior probabilities of ranges, conditional likelihoods of 
+      detection/taphonomic control counts conditional on ranges, and posterior probabilities
+      of ranges, given their priors and data likelihoods
+    o added more plotting options, e.g. pie charts on corners
+    o added rounding to plot of cladogenesis model
+    o added CITATION file and information
+
+BUG FIXES
+
+    o Fixed minor bugs in the plot_BioGeoBEARS_model function.
+
+OTHER CHANGES
+
+    o none
+    
+
+
+CHANGES in BioGeoBEARS VERSION 0.2
+
+NEW FEATURES
+
+    o Added new functions for displaying ancestral range estimates, a legend for same, 
+      and a graphical depiction of the initial or inferred model parameters & speciation
+      model.
+    o Added new function features for incorporating fossil tips in the likelihood 
+      calculations in the correct way, stratifying the tree correctly so that the same
+      likelihoods are produced in stratified and un-stratified analyses under the same 
+      model.  Several utility functions to aid with steps of this.
+    o Added an error check function to catch many of the common sources of problems, e.g.
+      mismatches between the tip names in the input Newick and geography data files.
+    o Added importFrom() commands to the NAMESPACE for the several packages where only 
+      one or a few functions were needed.
+
+BUG FIXES
+
+    o fixed minor bug in tree sectioning/chainsaw2 function, which was due to not all
+      concatenated labels being strsplit on commas, then sorted, then concatenated again,
+      before being compared.
+
+OTHER CHANGES
+
+    o removed LaplacesDemon dependency, as that package is now maintained off CRAN. 
+      Bayesian functions using LP have been moved to an example script.
+    
+
+
+
+
+
+CHANGES in BioGeoBEARS VERSION 0.1.2
+
+NEW FEATURES
+
+    o more examples
+
+BUG FIXES
+
+    o using normalizePath() to make examples work in Windows (fixing compile error
+      noted by Uwe of CRAN)
+
+OTHER CHANGES
+
+    o none
+    

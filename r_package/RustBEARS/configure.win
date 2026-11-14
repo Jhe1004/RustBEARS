@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+export CARGO_TARGET_DIR="$(pwd)/src/rust/target"
+command -v cargo >/dev/null 2>&1 || { echo "Rust cargo is required to build RustBEARS" >&2; exit 1; }
+command -v rustc >/dev/null 2>&1 || { echo "Rust rustc is required to build RustBEARS" >&2; exit 1; }
+
+host_target="$(rustc -vV | sed -n 's/^host: //p')"
+gnu_target=""
+case "$host_target" in
+  *-pc-windows-gnu|*-pc-windows-gnullvm)
+    gnu_target="$host_target"
+    ;;
+  *)
+    if command -v rustup >/dev/null 2>&1; then
+      installed="$(rustup target list --installed 2>/dev/null || true)"
+      for candidate in x86_64-pc-windows-gnullvm x86_64-pc-windows-gnu; do
+        if printf '%s\n' "$installed" | grep -qx "$candidate"; then
+          gnu_target="$candidate"
+          break
+        fi
+      done
+    fi
+    ;;
+esac
+
+if [ -z "$gnu_target" ]; then
+  echo "ERROR: Building the RustBEARS R package on Windows (Rtools/MinGW) requires a GNU ABI Rust target." >&2
+  echo "Detected default Rust host '$host_target' with no GNU target installed." >&2
+  echo "Please run: rustup target add x86_64-pc-windows-gnu" >&2
+  exit 1
+fi
+
+cargo --config 'source.crates-io.replace-with="vendored-sources"' \
+      --config 'source.vendored-sources.directory="src/rust/vendor"' \
+      build --manifest-path src/rust/Cargo.toml --target "$gnu_target" \
+      --release --locked --offline -p bgb-ffi --features r-blas
+
+archive_rel="rust/target/$gnu_target/release/libbgb_ffi.a"
+printf 'PKG_LIBS = %s $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll\n' "$archive_rel" > src/Makevars.win
+printf '\n$(SHLIB): %s\n' "$archive_rel" >> src/Makevars.win

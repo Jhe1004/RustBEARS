@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rustbears"
+version = "1.1.4"
+description = "RustBEARS: Unified native Rust likelihood and biogeographical stochastic mapping engine for BioGeoBEARS models"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23", "scipy>=1.10", "pandas>=1.5", "matplotlib>=3.6"]
+license = {text = "GPL-3.0-or-later"}
+authors = [
+  {name = "Nicholas J. Matzke"},
+  {name = "Jian He", email = "j.he930724@gmail.com"}
+]
+maintainers = [
+  {name = "Jian He", email = "j.he930724@gmail.com"}
+]
+keywords = ["biogeography", "phylogenetics", "macroevolution", "BioGeoBEARS", "stochastic-mapping", "Rust"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+
+[project.urls]
+Homepage = "https://github.com/Jhe1004/RustBEARS"
+Repository = "https://github.com/Jhe1004/RustBEARS"
+Issues = "https://github.com/Jhe1004/RustBEARS/issues"
+
+[project.scripts]
+rustbears = "rustbears.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["rustbears*"]
+
+[tool.setuptools.package-data]
+rustbears = ["THIRD_PARTY_LICENSES.md", "NOTICE-Rust-port.md"]

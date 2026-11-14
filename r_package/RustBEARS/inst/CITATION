@@ -1,0 +1,36 @@
+citHeader("When using RustBEARS in publications, please co-cite BOTH the foundational BioGeoBEARS publications by Nicholas J. Matzke (2013, 2014) AND the RustBEARS software package:")
+
+bibentry(
+  bibtype = "Article",
+  title   = "Probabilistic historical biogeography: new models for founder-event speciation, imperfect detection, and fossils allow improved accuracy and model-testing",
+  author  = person("Nicholas J.", "Matzke"),
+  journal = "Frontiers of Biogeography",
+  year    = "2013",
+  volume  = "5",
+  number  = "4",
+  pages   = "242--248",
+  doi     = "10.21425/F5FBG19694"
+)
+
+bibentry(
+  bibtype = "Article",
+  title   = "Model Selection in Historical Biogeography Reveals that Founder-Event Speciation Is a Crucial Process in Island Clades",
+  author  = person("Nicholas J.", "Matzke"),
+  journal = "Systematic Biology",
+  year    = "2014",
+  volume  = "63",
+  number  = "6",
+  pages   = "951--970",
+  doi     = "10.1093/sysbio/syu056"
+)
+
+bibentry(
+  bibtype = "Manual",
+  title   = "RustBEARS: Unified Rust Computational Engine for Probabilistic Historical Biogeography",
+  author  = person("Jian", "He"),
+  year    = "2026",
+  note    = "R and Python software package version 1.1.4",
+  url     = "https://github.com/Jhe1004/RustBEARS"
+)
+
+citFooter("Please preserve full credit to N. J. Matzke's foundational BioGeoBEARS framework alongside RustBEARS. Report derivative technical issues at https://github.com/Jhe1004/RustBEARS/issues.")

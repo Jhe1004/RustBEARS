@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  rust-and-python:
+    name: Rust & Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Rust workspace unit tests (offline vendored)
+        working-directory: rust
+        run: |
+          cargo --config 'source.crates-io.replace-with="vendored-sources"' --config 'source.vendored-sources.directory="vendor"' test --locked --offline
+
+      - name: Build and install Python wheel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel numpy scipy pandas matplotlib
+          python -m pip wheel --no-build-isolation --no-deps -w dist .
+          python -m pip install --no-deps dist/rustbears-*.whl
+
+      - name: Verify installed wheel and run tests outside repository root
+        run: |
+          WORK_TMP="$(mktemp -d)"
+          cp -R tests "$WORK_TMP/tests"
+          cd "$WORK_TMP"
+          python -c "import pathlib, rustbears; p = pathlib.Path(rustbears.__file__).resolve().parent; assert 'site-packages' in str(p) or 'dist-packages' in str(p), p; assert (p / 'THIRD_PARTY_LICENSES.md').is_file(); assert (p / 'LICENSE').is_file(); assert rustbears.__version__ == '1.1.4'"
+          python -m unittest discover -s tests -p "test_*.py" -v
+          rustbears --help
+
+  r-package:
+    name: R Package RustBEARS (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system linear algebra libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblapack-dev libblas-dev gfortran libcurl4-openssl-dev
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Install R dependencies
+        run: |
+          Rscript -e 'install.packages(c("ape", "phytools", "optimx", "GenSA", "expm", "fdrtool", "httr", "statmod", "SparseM", "spam", "stringr", "plotrix", "MultinomialCI"), repos = "https://cloud.r-project.org")'
+
+      - name: Build reproducible R source tarball and verify RustBEARS R package
+        run: |
+          ./scripts/build_release_artifacts.sh --skip-python-tests
+          R CMD INSTALL dist/RustBEARS_1.1.4.tar.gz
+          Rscript tests/test_r_edge_contracts.R
+          Rscript tests/test_r_optimizer.R
+          Rscript --vanilla --default-packages=base -e 'library(RustBEARS); stopifnot(is.function(define_BioGeoBEARS_run))'

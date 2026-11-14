@@ -1,0 +1,5 @@
+^src/rust/target$
+^\.travis\.yml$
+^\.cargo_vcs_info\.json$
+^\.github($|/)
+\.Rapp\.history$

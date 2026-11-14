@@ -1,0 +1,12 @@
+[package]
+name = "bgb-numerics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bgb-core = { path = "../bgb-core" }
+
+[features]
+r-blas = []

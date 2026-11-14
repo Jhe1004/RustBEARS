@@ -1,0 +1,10 @@
+[package]
+name = "bgb-bsm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rayon = "1.11"
+bgb-numerics = { path = "../bgb-numerics" }

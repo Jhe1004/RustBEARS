@@ -1,0 +1,35 @@
+# Rust & C/C++ build artifacts
+**/target/
+r_package/RustBEARS/src/*.o
+r_package/RustBEARS/src/*.so
+r_package/RustBEARS/src/*.dll
+r_package/RustBEARS/src/*.dylib
+r_package/RustBEARS/src/*.a
+r_package/RustBEARS/src/Makevars.win
+
+# Python build & compiled native libraries
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+rustbears/*.dylib
+rustbears/*.so
+rustbears/*.dll
+
+# R build & check outputs
+*.Rcheck/
+RustBEARS_*.tar.gz
+RustBEARS_*.tgz
+RustBEARS_*.zip
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~

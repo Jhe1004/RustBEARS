@@ -1,0 +1,9 @@
+[package]
+name = "bgb-clado"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bgb-core = { path = "../bgb-core" }

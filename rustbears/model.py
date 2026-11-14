@@ -1,0 +1,439 @@
+"""Model configuration, compiled likelihood evaluation and optimization."""
+import ast
+from dataclasses import dataclass, field, replace
+import operator
+from collections.abc import Mapping
+
+import numpy as np
+from scipy.optimize import differential_evolution, dual_annealing, minimize
+
+from ._ffi import CompiledContext, _EMPTY, kernel
+from .io import read_geog, read_layer_matrices, read_newick, read_times
+from .operators import _priors, _states, rcpp_areas_list_to_states_list, rcpp_states_list_to_DEmat
+from .traits import TraitModel
+from .stratified import compile_sections, config_single, effective_times, section_the_tree
+
+
+@dataclass(frozen=True)
+class Parameter:
+    type: str
+    init: float
+    min: float
+    max: float
+
+
+_BIN = {ast.Add:operator.add,ast.Sub:operator.sub,ast.Mult:operator.mul,
+        ast.Div:operator.truediv,ast.Pow:operator.pow}
+
+
+def _expression(node, get):
+    if isinstance(node, ast.Name):
+        return get(node.id)
+    if isinstance(node, ast.Constant) and type(node.value) in (float,int):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op,(ast.UAdd,ast.USub)):
+        value=_expression(node.operand,get)
+        return -value if isinstance(node.op,ast.USub) else value
+    if isinstance(node, ast.BinOp) and type(node.op) in _BIN:
+        return _BIN[type(node.op)](_expression(node.left,get),_expression(node.right,get))
+    raise ValueError("parameter links allow only names, numbers and arithmetic")
+
+
+@dataclass(frozen=True)
+class BioGeoBEARSModelObject:
+    name: str
+    params: Mapping[str, Parameter]
+
+    def __post_init__(self):
+        linked = {name:ast.parse(p.type.replace("^","**"),mode="eval").body
+                  for name,p in self.params.items() if p.type not in ("fixed","free")}
+        object.__setattr__(self,"_linked",linked)
+        for name,p in self.params.items():
+            if not np.isfinite([p.init,p.min,p.max]).all() or p.min>p.max:
+                raise ValueError(f"invalid bounds or initial value for {name}")
+            if p.type=="free" and not p.min<=p.init<=p.max:
+                raise ValueError(f"initial value for {name} outside bounds")
+        self.resolve()
+
+    @property
+    def free(self):
+        return tuple(name for name,p in self.params.items() if p.type=="free")
+
+    def resolve(self, overrides=None):
+        supplied={} if overrides is None else dict(overrides)
+        if supplied.keys()-self.params.keys():
+            raise ValueError(f"unknown parameters: {sorted(supplied.keys()-self.params.keys())}")
+        active=set()
+        values={}
+
+        def value(name):
+            if name not in self.params:
+                raise ValueError(f"undefined parameter {name}")
+            if name in active:
+                raise ValueError(f"circular parameter link at {name}")
+            if name in values:
+                return values[name]
+            active.add(name)
+            p=self.params[name]
+            x=_expression(self._linked[name],value) if name in self._linked else supplied.get(name,p.init)
+            if not np.isfinite(x):
+                raise ValueError(f"non-finite parameter {name}")
+            values[name]=float(x)
+            active.remove(name)
+            return x
+
+        for name in self.params:
+            value(name)
+        return values
+
+    def with_parameters(self, **changes):
+        params=dict(self.params)
+        for name, change in changes.items():
+            params[name] = change if isinstance(change, Parameter) else replace(params[name], **change)
+        return BioGeoBEARSModelObject(self.name,params)
+
+
+def model_template(name):
+    display=name.upper().replace(" ","")
+    parts=display.split("+")
+    base=parts[0]
+    if base not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X"}:
+        raise ValueError(f"unknown model {name}")
+    categories={"DEC":3,"DIVALIKE":2,"BAYAREALIKE":1}[base]
+    p = {
+        "d":Parameter("free",.01,1e-12,5), "e":Parameter("free",.01,1e-12,5),
+        "a":Parameter("fixed",0,1e-12,5), "b":Parameter("fixed",1,1e-12,1),
+        "x":Parameter("free" if "X" in parts else "fixed",0,-2.5,2.5),
+        "n":Parameter("fixed",0,-10,10), "w":Parameter("fixed",1,-10,10),
+        "u":Parameter("fixed",0,-10,10),
+        "j":Parameter("free" if "J" in parts else "fixed",.01 if "J" in parts else 0,1e-5,categories-1e-5),
+        "ysv":Parameter(f"{categories}-j",categories,0,categories),
+        "y":Parameter(f"ysv/{categories}",1,0,1),
+        "s":Parameter("ysv/3" if base=="DEC" else "fixed",1 if base=="DEC" else 0,0,1),
+        "v":Parameter(f"ysv/{categories}" if base!="BAYAREALIKE" else "fixed",1 if base!="BAYAREALIKE" else 0,0,1),
+        "mx01":Parameter("fixed",.0001,.0001,.9999),
+        "mx01s":Parameter("mx01",.0001,.0001,.9999),
+        "mx01v":Parameter("fixed" if base=="DIVALIKE" else "mx01",.5 if base=="DIVALIKE" else .0001,.0001,.9999),
+        "mx01j":Parameter("mx01",.0001,.0001,.9999),
+        "mx01y":Parameter("fixed" if base=="BAYAREALIKE" else "mx01",.9999 if base=="BAYAREALIKE" else .0001,.0001,.9999),
+    }
+    return BioGeoBEARSModelObject(display.replace("+X","+x"),p)
+
+
+@dataclass
+class ModelConfig:
+    tree: object
+    geog: object
+    model: str | BioGeoBEARSModelObject = "DEC"
+    max_range_size: int | None = None
+    include_null_range: bool = True
+    allow_null_tips: bool = False
+    use_ambiguities: bool = False
+    fixnode: object = None
+    fixlikes: object = None
+    timeperiods: object = None
+    areas_allowed: object = None
+    areas_adjacency: object = None
+    dispersal_multipliers: object = None
+    distances: object = None
+    envdistances: object = None
+    area_of_areas: object = None
+    trait_values: object = None
+    trait_model: object = None
+    precision: str = "strict_f64"
+    min_branchlength: float = 1e-6
+    force_sparse: bool = False
+    rootedge: bool = False
+
+
+@dataclass
+class EvaluationResult:
+    lnL: float
+    ancestral_probs_branch_top: np.ndarray | None
+    ancestral_probs_branch_bottom: np.ndarray | None
+    condlikes_table: np.ndarray | None
+    downpass_likes_branch_bottom: np.ndarray | None
+    states_list: tuple
+    ranges_list: tuple
+    tree: object = field(repr=False)
+    downpass_likes_branch_top: np.ndarray | None = field(default=None,repr=False)
+    downpass_table: np.ndarray | None = field(default=None,repr=False)
+
+    def to_dataframe(self):
+        import pandas as pd
+
+        if self.ancestral_probs_branch_top is None:
+            raise ValueError("this result contains only a likelihood")
+        p=self.ancestral_probs_branch_top
+        frame=pd.DataFrame(p,columns=self.ranges_list)
+        frame.insert(0,"most_likely_state",[self.ranges_list[j] for j in np.argmax(p,axis=1)])
+        frame.insert(0,"node_type",self.tree.node_table()["node.type"])
+        frame.insert(0,"node",np.arange(len(p))+1)
+        return frame
+
+
+@dataclass
+class FitResult:
+    lnL: float
+    params: dict[str, float]
+    n_params: int
+    aic: float
+    aicc: float
+    n_evals: int
+    converged: bool
+    evaluation: EvaluationResult
+    model: object = field(repr=False)
+    message: str = ""
+    strict_proposal: dict | None = None
+
+    def summary(self):
+        from .stats import compare_models
+        return compare_models([self])
+
+    def run_bsm(self, num_maps=100, mode="uniformization", num_threads=1, seed=12345):
+        from .bsm import run_bsm
+        return run_bsm(self,num_maps,mode,num_threads,seed)
+
+    def plot(self, filepath, plot_what="pie", show_corners=True, title=None):
+        from .plotting import plot_fit
+        return plot_fit(self,filepath,plot_what,show_corners,title)
+
+
+class BioGeoBEARS:
+    def __init__(self, tree, geog=None, model="DEC", **options):
+        self.config=tree if isinstance(tree,ModelConfig) else ModelConfig(tree,geog,model,**options)
+        c=self.config
+        self.tree=read_newick(c.tree)
+        self.geog=read_geog(c.geog)
+        self.model=model_template(c.model) if isinstance(c.model,str) else c.model
+        if c.precision not in ("strict_f64","legacy_f32"):
+            raise ValueError("precision must be strict_f64 or legacy_f32")
+        self.precision=c.precision
+        self.areas=self.geog.areas
+        self.na=len(self.areas)
+        raw=rcpp_areas_list_to_states_list(self.areas,c.max_range_size,c.include_null_range)
+        states=tuple(() if s==(-1,) else s for s in raw)
+        self.null=int(c.include_null_range)
+        self.raw_times=read_times(c.timeperiods)
+        self.times=effective_times(self.raw_times,float(self.tree.ages[self.tree.root]))
+        self.sections=section_the_tree(self.tree,self.times) if len(self.times)>1 else None
+        nlayer=max(1,len(self.times))
+
+        def matrices(source, distance=False):
+            return read_layer_matrices(source,self.na,nlayer,missing_diagonal=distance,
+                                       areas=self.areas,raw_layers=len(self.raw_times))
+
+        self.dist=matrices(c.distances,True)
+        self.env=matrices(c.envdistances,True)
+        self.manual=matrices(c.dispersal_multipliers)
+        if c.area_of_areas is None:
+            self.area_size=np.ones((nlayer,self.na))
+        else:
+            areas=np.asarray(c.area_of_areas,float)
+            if len(self.raw_times)>nlayer and areas.shape==(len(self.raw_times),self.na):
+                areas=areas[:nlayer]
+            self.area_size=np.broadcast_to(areas,(nlayer,self.na)).copy()
+            if np.any(self.area_size <= 0) or not np.isfinite(self.area_size).all():
+                raise ValueError("area sizes must be positive and finite")
+        self.masks=tuple(np.array([not s or
+                                   (a[s[0],list(s)].sum()==len(s) and
+                                    adj[np.ix_(s,s)].sum()==len(s)**2) for s in states])
+                         for a,adj in zip(matrices(c.areas_allowed),matrices(c.areas_adjacency)))
+        single_mask = self.masks[0] if self.sections is None else np.ones(len(states),bool)
+        self.geographic_states=tuple(s for s,keep in zip(states,single_mask) if keep)
+        if self.sections is None:
+            if len(self.geographic_states)<=self.null:
+                raise ValueError("the spatial constraints exclude all occupied ranges")
+            self.masks=(np.ones(len(self.geographic_states),bool),)
+        self.states=self.geographic_states
+        sep="|" if any(len(a)>1 for a in self.areas) else ""
+        self.ranges=tuple(sep.join(self.areas[i] for i in s) or "_" for s in self.states)
+        self.tips=self.geog.likelihoods(self.tree.tip_labels,self.states,c.allow_null_tips,c.use_ambiguities)
+        self.trait=c.trait_model
+        if (c.trait_values is None) != (self.trait is None) or self.trait is not None and not isinstance(self.trait,TraitModel):
+            raise ValueError("trait_values requires a TraitModel")
+        traits=1
+        if self.trait:
+            self.trait.arrays(self.model.resolve())
+            obs=self.trait.observations(self.tree.tip_labels,c.trait_values)
+            traits=len(self.trait.labels)
+            self.tips=np.asfortranarray(np.concatenate([self.tips*obs[:,i,None] for i in range(traits)],axis=1))
+            self.states=self.geographic_states*traits
+            self.ranges=tuple(f"{r}|{t}" for t in self.trait.labels for r in self.ranges)
+        def _checked_fixnode_id(raw_id):
+            if isinstance(raw_id, (bool, np.bool_)):
+                raise ValueError("fixnode IDs must be integers, not booleans")
+            if isinstance(raw_id, (int, np.integer)):
+                return int(raw_id) - 1
+            if isinstance(raw_id, (float, np.floating)):
+                if not np.isfinite(raw_id) or not float(raw_id).is_integer():
+                    raise ValueError(f"non-integer fixnode ID {raw_id!r}")
+                return int(raw_id) - 1
+            raise ValueError(f"invalid fixnode ID {raw_id!r}")
+
+        raw_fixes = () if c.fixnode is None else ([c.fixnode] if np.ndim(c.fixnode) == 0 else list(c.fixnode))
+        self.fixes=tuple(_checked_fixnode_id(n) for n in raw_fixes)
+        self.fixlikes=np.atleast_2d(np.asarray(c.fixlikes,float)) if self.fixes else _EMPTY
+        if self.fixes and self.fixlikes.shape==(len(self.fixes),len(states)*traits) and not single_mask.all():
+            self.fixlikes=self.fixlikes[:,np.tile(single_mask,traits)]
+        if self.fixes and (self.fixlikes.shape!=(len(self.fixes),len(self.states)) or
+                           any(n<self.tree.tip_count or n>=len(self.tree.labels) for n in self.fixes)
+                           or len(set(self.fixes))!=len(self.fixes)):
+            raise ValueError("fixnode must contain unique internal IDs, with one state vector per node")
+        if self.sections:
+            self._geometry,self._prior_width=compile_sections(self.sections,self.geographic_states,self.masks,
+                                                               self.null,self.na,self.fixes,self.fixlikes,c.min_branchlength,
+                                                               len(self.trait.labels) if self.trait else 0)
+            self._upper_m=[None]*nlayer
+            last=None
+            for i in reversed(range(nlayer)):
+                self._upper_m[i]=last
+                for piece in self.sections.pieces[i]:
+                    if not piece.branch:
+                        last=len(piece.lengths)
+        else:
+            self._prior_width=(max(map(len,self.states)),)
+            edges=self.tree.edges
+            self._geometry=config_single(self.tree.tip_count,len(self.states),edges,self.tree.lengths[edges[:,1]],
+                                         self.tips,self.null,self.tree.root_edge if c.rootedge else 0,
+                                         () if self.trait else self.states,() if self.trait else self.states[self.null:],
+                                         self.na,self.fixes,self.fixlikes,c.min_branchlength,
+                                         len(self.trait.labels) if self.trait else 0)
+
+    def _layer_arrays(self, i, p, *, upper=False):
+        env=self.env[0] if upper and self.sections else self.env[i]
+        dist=self.dist[i]**p["x"] * env**p["n"] * self.manual[i]**p["w"]
+        prior=tuple(p[f"mx01{kind}"] for kind in "svjy")
+        weights=[p[k] for k in "svjy"]
+        mult=self._upper_m[i] if upper and not self.config.force_sparse else None
+        return (dist*p["d"], self.area_size[i]**p["u"]*p["e"], dist*p["a"],
+                weights,dist if mult is None else mult*dist,
+                *_priors(self.na,self._prior_width[i],prior,self.precision))
+
+    def _trait_layer(self, i, params, upper=False):
+        d,e,a,weights,dispersal,*priors=self._layer_arrays(i,params,upper=upper)
+        m,rates,jump=self.trait.arrays(params)
+        if self.sections and upper:
+            jump=None
+        local=tuple(s for s,keep in zip(self.geographic_states,self.masks[i]) if keep)
+        n,nt=len(local),len(m)
+        q=np.zeros((n*nt,n*nt),order="F")
+        parts=[]
+        for j,multiplier in enumerate(m):
+            slot=slice(j*n,(j+1)*n)
+            q[slot,slot]=rcpp_states_list_to_DEmat(self.areas,local,multiplier*d,e,multiplier*a,
+                                                  precision=self.precision)
+            for k in range(nt):
+                if j!=k:
+                    target=slice(k*n,(k+1)*n)
+                    q[slot,target]=np.eye(n)*rates[j,k]
+            part=kernel(4,*_states(local[self.null:]),weights,multiplier*dispersal,*priors,self.na,[],
+                        precision=self.precision)
+            parts.append(np.column_stack(part))
+        np.fill_diagonal(q,0)
+        np.fill_diagonal(q,-q.sum(axis=1))
+        primary=[]
+        extra=[]
+        for t,part in enumerate(parts):
+            row=part.copy()
+            row[:,:3]+=t*n
+            if jump is not None:
+                split=part[:,:3].astype(int)
+                st=local[self.null:]
+                j_events=np.array([not set(st[l]+st[r]).issubset(st[p]) for p,l,r in split])
+                row[j_events,3]*=jump[t,t]
+                for k in range(nt):
+                    if t==k or jump[t,k]==0:
+                        continue
+                    changed=row[j_events].copy()
+                    changed[:,1:3]+=(k-t)*n
+                    changed[:,3]=part[j_events,3]*jump[t,k]
+                    extra.append(changed)
+            primary.append(row)
+        columns=np.concatenate([*primary,*extra],axis=0)
+        denom=kernel(6,columns[:,0],columns[:,3],n*nt-self.null)[0]
+        return q,columns,denom,dispersal
+
+    def _layer_buffers(self, i, p, ancestors, full, upper=False):
+        sparse=self.config.force_sparse
+        if self.trait:
+            q,columns,denom,_=self._trait_layer(i,p,upper)
+            flags=[0,sparse,ancestors,len(self.trait.labels) if self.sections else full]
+            return [flags,q,_EMPTY,_EMPTY,*columns.T,denom,_EMPTY,[0,0,0,0],*([_EMPTY]*11)]
+        d,e,a,weights,jump,*priors=self._layer_arrays(i,p,upper=upper)
+        return [[0,sparse,ancestors,full],*([_EMPTY]*9),[1,1,sparse,1e-26],d,e,a,
+                weights,jump,*priors,self.na]
+
+    def _context(self,num_threads):
+        return CompiledContext(self._geometry,stratified=self.sections is not None,num_threads=num_threads)
+
+    def _evaluate(self, ctx, params, full, precision=None):
+        if self.sections:
+            args=[[full,full,1,1,1],self.tips]
+            for i in range(len(self.times)):
+                separate=full and (self.trait is not None or not np.array_equal(self.env[i],self.env[0]) or
+                                   params["j"]!=0 and self._upper_m[i] is not None and not self.config.force_sparse)
+                args.extend(([separate],*self._layer_buffers(i,params,False,False)))
+                if separate:
+                    args.extend(self._layer_buffers(i,params,False,False,True))
+        else:
+            args=self._layer_buffers(0,params,full,full)
+            if params["b"] != 1:
+                args.append([params["b"]])
+        out=ctx.evaluate(args,self.precision if precision is None else precision)
+        lnL=float(out[0][0])
+        if not full:
+            return lnL
+        n=len(self.states)
+        def matrix(x):
+            return x.reshape((-1,n),order="F")
+        if self.sections:
+            cond,down_table,bottom,top,down,td=map(matrix,(out[2],out[3],out[6],out[7],out[8],out[9]))
+        else:
+            td,cond,down,up_bottom,up_top=map(matrix,(out[2],out[3],out[5],out[6],out[7]))
+            with np.errstate(invalid="ignore",divide="ignore"):
+                bottom=down*up_bottom
+                top=td[:len(up_top)]*up_top
+                top[self.tree.root]=td[self.tree.root]
+                bottom=bottom/bottom.sum(axis=1,keepdims=True)
+                top=top/top.sum(axis=1,keepdims=True)
+            down_table=None
+        return EvaluationResult(lnL,top,bottom,cond,down,self.states,self.ranges,self.tree,td,down_table)
+
+    def evaluate(self, params=None, *, num_threads=1, calc_ancprobs=True):
+        p=self.model.resolve(params)
+        with self._context(num_threads) as ctx:
+            value=self._evaluate(ctx,p,calc_ancprobs)
+        return value if calc_ancprobs else EvaluationResult(
+            value,None,None,None,None,self.states,self.ranges,self.tree)
+
+    def fit(self, optimizer="L-BFGS-B", num_threads=1, *, initial=None, seed=1, maxiter=500):
+        free=self.model.free
+        start=self.model.resolve(initial)
+        bounds=[(self.model.params[k].min,self.model.params[k].max) for k in free]
+        x0=np.asarray([start[k] for k in free])
+        if any(not lo<=x<=hi for x,(lo,hi) in zip(x0,bounds)):
+            raise ValueError("initial free parameters outside bounds")
+        from ._optimization import optimize_likelihood
+        with self._context(num_threads) as ctx:
+            def score(theta,precision):
+                params=self.model.resolve({**start,**dict(zip(free,theta))})
+                return self._evaluate(ctx,params,False,precision)
+            search=optimize_likelihood(score,list(free),x0,bounds,
+                self.tree.ages[self.tree.root],self.precision,optimizer,maxiter,seed)
+            if optimizer=="L-BFGS-B":
+                from ._refinement import refine_completed_search
+                search=refine_completed_search(score,list(free),x0,bounds,self.precision,maxiter,search)
+            p=self.model.resolve({**start,**dict(zip(free,search.theta))})
+            strict_proposal=None
+            if search.proposal is not None:
+                strict_proposal=dict(search.proposal)
+                theta=strict_proposal.pop("theta")
+                strict_proposal["params"]=self.model.resolve({**start,**dict(zip(free,theta))})
+            evaluation=self._evaluate(ctx,p,True)
+        k=sum(1 for name in free if self.model.params[name].min < self.model.params[name].max)
+        n=self.tree.tip_count
+        aic=2*k-2*evaluation.lnL
+        aicc=aic+2*k*(k+1)/(n-k-1) if n>k+1 else float("inf")
+        return FitResult(evaluation.lnL,p,k,aic,aicc,search.evaluations,
+                         search.converged,evaluation,self,search.message,strict_proposal)

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+command -v cargo >/dev/null 2>&1 || { echo "Rust cargo is required to build this package" >&2; exit 1; }
+export CARGO_TARGET_DIR="$(pwd)/src/rust/target"
+cargo --config 'source.crates-io.replace-with="vendored-sources"' --config 'source.vendored-sources.directory="src/rust/vendor"' build --manifest-path src/rust/Cargo.toml --release --locked --offline -p bgb-ffi --features r-blas
+case "$(uname -s)" in
+  Darwin) native_libs="-liconv -lSystem" ;;
+  *) native_libs="-ldl -lpthread -lm" ;;
+esac
+printf 'PKG_LIBS = rust/target/release/libbgb_ffi.a $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) %s\n' "$native_libs" > src/Makevars
+
+# Re-link R shared library whenever the Rust archive changes.
+printf '\n$(SHLIB): rust/target/release/libbgb_ffi.a\n' >> src/Makevars

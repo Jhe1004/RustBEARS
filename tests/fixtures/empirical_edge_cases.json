@@ -1,0 +1,1792 @@
+[
+  {
+    "config": "author_898f0a79e933__DEC+J__C0_Author_Constrained",
+    "screen": "BSM001",
+    "model": "DEC+J",
+    "max_range_size": 3,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-05,
+        "max": 2.99999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "3-j",
+        "init": 2.99,
+        "min": 1e-05,
+        "max": 3,
+        "est": 2.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*2/3",
+        "init": 1.99333333333333,
+        "min": 1e-05,
+        "max": 2,
+        "est": 1.99333333333333,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_898f0a79e933__DEC+J__C0_Author_Constrained/53c9072af94fefbb0fdb0d787a680fca53c9bbd05d4738c327e99a48a1e9ffa3.tree",
+      "geog": "author_898f0a79e933__DEC+J__C0_Author_Constrained/1eb3ad86fe4b3fd4807dade582736a887dc158a604da5cb4c2549f362c3d3b95.data",
+      "timeperiods": "author_898f0a79e933__DEC+J__C0_Author_Constrained/d8942ea22badb00ff3590bf3791459ed33bc7d3883ae9816106be37283e47a2a.txt",
+      "areas_allowed": "author_898f0a79e933__DEC+J__C0_Author_Constrained/475fec5f0f5983b6fed563aea64faf121f9353e2b3033d3409aa5c16a056305c.txt",
+      "dispersal_multipliers": "author_898f0a79e933__DEC+J__C0_Author_Constrained/49299311a25f0a09ce58d2f76891e428b1f1180c4f228185f6efa94f5a6ebf58.txt"
+    },
+    "reference": {
+      "LnL": -314.872811464542,
+      "d": 0.00348094902638396,
+      "e": 0.00121372109829682,
+      "j": 0.0668163191528372,
+      "root_probability_file": "author_898f0a79e933__DEC+J__C0_Author_Constrained/root_probs.tsv"
+    }
+  },
+  {
+    "config": "author_36c2924d64dd__DEC+J__C0_Author_Constrained",
+    "screen": "BSM001",
+    "model": "DEC+J",
+    "max_range_size": 3,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-05,
+        "max": 2.99999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "3-j",
+        "init": 2.99,
+        "min": 1e-05,
+        "max": 3,
+        "est": 2.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*2/3",
+        "init": 1.99333333333333,
+        "min": 1e-05,
+        "max": 2,
+        "est": 1.99333333333333,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_36c2924d64dd__DEC+J__C0_Author_Constrained/53c9072af94fefbb0fdb0d787a680fca53c9bbd05d4738c327e99a48a1e9ffa3.tree",
+      "geog": "author_36c2924d64dd__DEC+J__C0_Author_Constrained/1eb3ad86fe4b3fd4807dade582736a887dc158a604da5cb4c2549f362c3d3b95.data",
+      "timeperiods": "author_36c2924d64dd__DEC+J__C0_Author_Constrained/d8942ea22badb00ff3590bf3791459ed33bc7d3883ae9816106be37283e47a2a.txt",
+      "areas_allowed": "author_36c2924d64dd__DEC+J__C0_Author_Constrained/475fec5f0f5983b6fed563aea64faf121f9353e2b3033d3409aa5c16a056305c.txt",
+      "dispersal_multipliers": "author_36c2924d64dd__DEC+J__C0_Author_Constrained/79b5399d5b06f06aa80a0755f3c5a293be4f2f0f9bba76d127d8b9c882ec3fe2.txt"
+    },
+    "reference": {
+      "LnL": -298.602970921053,
+      "d": 0.00283360115273626,
+      "e": 0.000517072452950832,
+      "j": 0.120267171489584,
+      "root_probability_file": "author_36c2924d64dd__DEC+J__C0_Author_Constrained/root_probs.tsv"
+    }
+  },
+  {
+    "config": "author_19331216e7b6__DEC+J__C0_Author_Constrained",
+    "screen": "BSM001",
+    "model": "DEC+J",
+    "max_range_size": 3,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-05,
+        "max": 2.99999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "3-j",
+        "init": 2.99,
+        "min": 1e-05,
+        "max": 3,
+        "est": 2.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*2/3",
+        "init": 1.99333333333333,
+        "min": 1e-05,
+        "max": 2,
+        "est": 1.99333333333333,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_19331216e7b6__DEC+J__C0_Author_Constrained/53c9072af94fefbb0fdb0d787a680fca53c9bbd05d4738c327e99a48a1e9ffa3.tree",
+      "geog": "author_19331216e7b6__DEC+J__C0_Author_Constrained/1eb3ad86fe4b3fd4807dade582736a887dc158a604da5cb4c2549f362c3d3b95.data",
+      "timeperiods": "author_19331216e7b6__DEC+J__C0_Author_Constrained/d8942ea22badb00ff3590bf3791459ed33bc7d3883ae9816106be37283e47a2a.txt",
+      "areas_allowed": "author_19331216e7b6__DEC+J__C0_Author_Constrained/475fec5f0f5983b6fed563aea64faf121f9353e2b3033d3409aa5c16a056305c.txt",
+      "dispersal_multipliers": "author_19331216e7b6__DEC+J__C0_Author_Constrained/791a9d5c85b96c502a618ef8e472c0d2412cf68ca135aad1e4b2d73dd664779a.txt"
+    },
+    "reference": {
+      "LnL": -250.97736184659,
+      "d": 0.00234359328828776,
+      "e": 1e-12,
+      "j": 0.167005041135872,
+      "root_probability_file": "author_19331216e7b6__DEC+J__C0_Author_Constrained/root_probs.tsv"
+    }
+  },
+  {
+    "config": "author_079437c9c6e6__DEC+J__C0_Author_Constrained",
+    "screen": "BSM001",
+    "model": "DEC+J",
+    "max_range_size": 3,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-05,
+        "max": 2.99999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "3-j",
+        "init": 2.99,
+        "min": 1e-05,
+        "max": 3,
+        "est": 2.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*2/3",
+        "init": 1.99333333333333,
+        "min": 1e-05,
+        "max": 2,
+        "est": 1.99333333333333,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "ysv*1/3",
+        "init": 0.996666666666667,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.996666666666667,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_079437c9c6e6__DEC+J__C0_Author_Constrained/53c9072af94fefbb0fdb0d787a680fca53c9bbd05d4738c327e99a48a1e9ffa3.tree",
+      "geog": "author_079437c9c6e6__DEC+J__C0_Author_Constrained/1eb3ad86fe4b3fd4807dade582736a887dc158a604da5cb4c2549f362c3d3b95.data",
+      "timeperiods": "author_079437c9c6e6__DEC+J__C0_Author_Constrained/d8942ea22badb00ff3590bf3791459ed33bc7d3883ae9816106be37283e47a2a.txt",
+      "areas_allowed": "author_079437c9c6e6__DEC+J__C0_Author_Constrained/1cc338cf88d85d877c86fc28b22c968e80733842b63dc8180fe98e98314f2328.txt",
+      "dispersal_multipliers": "author_079437c9c6e6__DEC+J__C0_Author_Constrained/3111cc0e866147c3e0b711ac275944c20516334b96f5f91cde69b4168ba047ef.txt"
+    },
+    "reference": {
+      "LnL": -251.042512358339,
+      "d": 0.0022100857253606,
+      "e": 0.00156664441257742,
+      "j": 0.074170312283907,
+      "root_probability_file": "author_079437c9c6e6__DEC+J__C0_Author_Constrained/root_probs.tsv"
+    }
+  },
+  {
+    "config": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained",
+    "screen": "BSM085",
+    "model": "BAYAREALIKE+J",
+    "max_range_size": 4,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-05,
+        "max": 0.99999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "1-j",
+        "init": 0.99,
+        "min": 1e-05,
+        "max": 3,
+        "est": 0.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*1/1",
+        "init": 0.99,
+        "min": 1e-05,
+        "max": 2,
+        "est": 0.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "1-j",
+        "init": 0.99,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.99,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "fixed",
+        "init": 0.9999,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.9999,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained/9256933fe8cb65257d2f221ec8438eeff3c182a6a3d519ca3eb2ff7617e8f4f8.tree",
+      "geog": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained/0eda3e49bc690cc4531bb9227400c14ad8f3b6a7ed2102c4f15b88f4264388eb.data",
+      "timeperiods": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained/9f95481a57a923b018f5ebbe317e9bd9691f5da476b92fcb14f7a44d06337d37.txt",
+      "areas_allowed": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained/094868b615215475fa130417b166f3783bd5bbb428df6112a8123b0674b268cc.txt",
+      "dispersal_multipliers": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained/4484247318b48336ea3ad64762f2b68682d4354775fe42c0f6413b0f63cbe100.txt"
+    },
+    "reference": {
+      "LnL": -273.772103995412,
+      "d": 0.0167193298296709,
+      "e": 0.0249158346480134,
+      "j": 0.0656584530575755,
+      "root_probability_file": "author_9eb12dd07e84__BAYAREALIKE+J__C0_Author_Constrained/root_probs.tsv"
+    }
+  },
+  {
+    "config": "author_772a2f4cdb48__DIVALIKE__C0_Author_Constrained",
+    "screen": "BSM169",
+    "model": "DIVALIKE",
+    "max_range_size": 2,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-05,
+        "max": 1.99999,
+        "est": 0,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "2-j",
+        "init": 2,
+        "min": 1e-05,
+        "max": 3,
+        "est": 2,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*1/2",
+        "init": 1,
+        "min": 1e-05,
+        "max": 2,
+        "est": 1,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "ysv*1/2",
+        "init": 1,
+        "min": 1e-05,
+        "max": 1,
+        "est": 1,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "ysv*1/2",
+        "init": 1,
+        "min": 1e-05,
+        "max": 1,
+        "est": 1,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_772a2f4cdb48__DIVALIKE__C0_Author_Constrained/3339b375d6b0aa78eca614a5b2ccaa43670b55e880441105a0e1fb7ada471984.tree",
+      "geog": "author_772a2f4cdb48__DIVALIKE__C0_Author_Constrained/73d7054847878141d3504464bdf71a8b4e66e8196fd296b55e460f178d60b248.data",
+      "areas_allowed": "author_772a2f4cdb48__DIVALIKE__C0_Author_Constrained/e9a8f9d596e68cd602a58f4d5da4a1542b884a11a6a9a64ba59ac25b9a7fb819.txt",
+      "dispersal_multipliers": "author_772a2f4cdb48__DIVALIKE__C0_Author_Constrained/383847a42bf5a85def6ce84670a89a0466f34bfddd3ea6f7afb04fd26e81c96e.txt"
+    },
+    "reference": {
+      "LnL": -52.4783184958729,
+      "d": 0.181447325201944,
+      "e": 0.0177322575541939,
+      "j": 0,
+      "root_probability_file": "author_772a2f4cdb48__DIVALIKE__C0_Author_Constrained/root_probs.tsv"
+    }
+  },
+  {
+    "config": "author_772a2f4cdb48__DIVALIKE+J__C0_Author_Constrained",
+    "screen": "BSM169",
+    "model": "DIVALIKE+J",
+    "max_range_size": 2,
+    "run_settings": {
+      "include_null_range": true,
+      "min_branchlength": 1e-06
+    },
+    "initial_parameters": [
+      {
+        "type": "free",
+        "init": 0.01,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.01,
+        "note": "works",
+        "desc": "anagenesis: rate of 'dispersal' (range expansion)",
+        "_row": "d"
+      },
+      {
+        "type": "free",
+        "init": 0.001,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0.001,
+        "note": "works",
+        "desc": "anagenesis: rate of 'extinction' (range contraction)",
+        "_row": "e"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-12,
+        "max": 4.999999999999,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: rate of range-switching (i.e. for a standard char.)",
+        "_row": "a"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 1e-12,
+        "max": 0.999999999999,
+        "est": 1,
+        "note": "non-stratified only",
+        "desc": "anagenesis: exponent on branch lengths",
+        "_row": "b"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -2.5,
+        "max": 2.5,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on distance (modifies d, j, a)",
+        "_row": "x"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "exponent on environmental distance (modifies d, j, a)",
+        "_row": "n"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": -10,
+        "max": 10,
+        "est": 1,
+        "note": "works",
+        "desc": "exponent on manual dispersal multipliers (modifies d, j, a)",
+        "_row": "w"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": -10,
+        "max": 10,
+        "est": 0,
+        "note": "works",
+        "desc": "anagenesis: exponent on extinction risk with area (modifies e)",
+        "_row": "u"
+      },
+      {
+        "type": "free",
+        "init": 0.02,
+        "min": 1e-05,
+        "max": 1.99999,
+        "est": 0.02,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of jump dispersal",
+        "_row": "j"
+      },
+      {
+        "type": "2-j",
+        "init": 1.98,
+        "min": 1e-05,
+        "max": 3,
+        "est": 1.98,
+        "note": "works",
+        "desc": "cladogenesis: y+s+v",
+        "_row": "ysv"
+      },
+      {
+        "type": "ysv*1/2",
+        "init": 0.99,
+        "min": 1e-05,
+        "max": 2,
+        "est": 0.99,
+        "note": "works",
+        "desc": "cladogenesis: y+s",
+        "_row": "ys"
+      },
+      {
+        "type": "ysv*1/2",
+        "init": 0.99,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.99,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of sympatry (range-copying)",
+        "_row": "y"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of subset speciation",
+        "_row": "s"
+      },
+      {
+        "type": "ysv*1/2",
+        "init": 0.99,
+        "min": 1e-05,
+        "max": 1,
+        "est": 0.99,
+        "note": "works",
+        "desc": "cladogenesis: relative per-event weight of vicariant speciation",
+        "_row": "v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01j"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01y"
+      },
+      {
+        "type": "mx01",
+        "init": 0.0001,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.0001,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01s"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "works",
+        "desc": "cladogenesis: controls range size of smaller daughter",
+        "_row": "mx01v"
+      },
+      {
+        "type": "fixed",
+        "init": 0.5,
+        "min": 0.0001,
+        "max": 0.9999,
+        "est": 0.5,
+        "note": "no",
+        "desc": "root: controls range size probabilities of root",
+        "_row": "mx01r"
+      },
+      {
+        "type": "fixed",
+        "init": 0.1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0.1,
+        "note": "yes",
+        "desc": "mean frequency of truly sampling OTU of interest",
+        "_row": "mf"
+      },
+      {
+        "type": "fixed",
+        "init": 1,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 1,
+        "note": "yes",
+        "desc": "detection probability per true sample of OTU of interest",
+        "_row": "dp"
+      },
+      {
+        "type": "fixed",
+        "init": 0,
+        "min": 0.005,
+        "max": 0.995,
+        "est": 0,
+        "note": "yes",
+        "desc": "false detection of OTU probability per true taphonomic control sample",
+        "_row": "fdp"
+      }
+    ],
+    "files": {
+      "tree": "author_772a2f4cdb48__DIVALIKE+J__C0_Author_Constrained/3339b375d6b0aa78eca614a5b2ccaa43670b55e880441105a0e1fb7ada471984.tree",
+      "geog": "author_772a2f4cdb48__DIVALIKE+J__C0_Author_Constrained/73d7054847878141d3504464bdf71a8b4e66e8196fd296b55e460f178d60b248.data",
+      "areas_allowed": "author_772a2f4cdb48__DIVALIKE+J__C0_Author_Constrained/e9a8f9d596e68cd602a58f4d5da4a1542b884a11a6a9a64ba59ac25b9a7fb819.txt",
+      "dispersal_multipliers": "author_772a2f4cdb48__DIVALIKE+J__C0_Author_Constrained/383847a42bf5a85def6ce84670a89a0466f34bfddd3ea6f7afb04fd26e81c96e.txt"
+    },
+    "reference": {
+      "LnL": -41.6762389983819,
+      "d": 0.0531215910503249,
+      "e": 1.00000042968507e-12,
+      "j": 0.271546490639692,
+      "root_probability_file": "author_772a2f4cdb48__DIVALIKE+J__C0_Author_Constrained/root_probs.tsv"
+    }
+  }
+]
