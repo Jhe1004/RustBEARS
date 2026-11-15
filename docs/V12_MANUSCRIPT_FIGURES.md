@@ -10,10 +10,9 @@ collision and final-size visual checks; script completion is not visual approval
 ## Figure 1: workflow and distinct computational workloads
 
 `scripts/plot_v12_performance.py --workflow-only --output DIR --audit-scripts QA_DIR`
-draws only the non-data methods panel. For the full figure use `--render`, two
-`--benchmark HOST=RESULTS_JSON` arguments, and two corresponding
-`--p0 HOST=RESULTS_JSON` arguments. The same two host names and benchmark grids
-are required. Formal benchmark records must contain every planned cell, including
+draws only the non-data methods panel. For the data figure use `--render`, two
+`--benchmark HOST=RESULTS_JSON` arguments, and `--workflow-input INVENTORY.json`.
+The benchmark grids must match. Formal benchmark records contain every planned cell, including
 failures; an unsupported or failed comparison cannot acquire a time ratio.
 
 Panel b uses all matched external/Rust fresh-process timing ratios. Startup,
@@ -21,9 +20,17 @@ imports and input parsing are included, so these are not kernel or optimizer
 speedups. Each comparator has its own mathematically aligned Rust convention.
 Lagrange-ng contributes only the two-area `v=2` stratum. Peak process RSS and
 unsupported/failed comparisons remain in the full source table. Panel c shows
-every single-worker, conditioned P0 fit, explicitly as a four-tip pilot workload;
-all other P0 groups remain in the source table and supplementary figure. This
-panel cannot establish full-workflow performance for larger trees.
+actual formal uncertainty API workflow costs from the locked complete suite,
+with fresh full calls separated from partial checkpoint resumes. See
+[the workflow cost contract](V12_FORMAL_WORKFLOW_COST_FIGURE.md) for its fixed
+six workload classes, source checks and missing-task denominators. Optional
+`--p0 HOST=RESULTS_JSON` inputs are supplementary only and can never supply panel c.
+
+This preparation is not a completed Figure 1. Actual calibration/case grids
+cover their registered state counts (currently 4/16/32); the original proposal's
+64/256-state complete-workflow benchmark requires a separate locked experiment.
+Panel b memory is currently exported in the full source table, not a main-panel
+memory curve. No formal quantitative panel has yet been rendered or approved.
 
 ## Figure 3: locked D2 case
 

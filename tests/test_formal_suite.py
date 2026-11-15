@@ -90,8 +90,9 @@ import run_v12_formal_suite as suite
 # Host CI runners may inherit nice != 0. Isolate this environmental input for
 # sleeping dummy workers only; the production launcher's gate stays unchanged.
 suite.os.getpriority=lambda which,who: {priority_override!r}
-if {cpu_count_override!r} is not None:
- suite.os.cpu_count=lambda: {cpu_count_override!r}
+mock_cpu_count={cpu_count_override!r}
+if mock_cpu_count is not None:
+ suite.os.cpu_count=lambda: mock_cpu_count
 def dummy(job,index,output,budget_path,revbayes,d2,workers):
  name=f'{{index:02d}}_unit';directory=output/name
  return dict(id=name,analysis=job['analysis'],settings=job,argv=[sys.executable,{str(script)!r},{str(self.path)!r},{str(seconds)!r},str(workers)],output=str(directory),result=str(directory/'unused.json'),reserved_cpus=workers,cwd={str(ROOT)!r},environment=suite.THREAD_ENV)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan Figure 1; render only actual formal benchmark and measured P0 inputs.
+"""Plan Figure 1; render formal benchmarks and source-bound API workflow costs.
 
 The workflow-only option draws a methods diagram without inventing data panels.
 Matched process ratios include startup and are never called kernel speedups.
@@ -10,19 +10,27 @@ import json
 from pathlib import Path
 
 import numpy as np
-from v12_figure_utils import (audit_alignment, configure_plotting, copy_evidence,
-                              export_rows, save_figure, sha, write_json)
+if __package__:
+    from .v12_figure_utils import (audit_alignment, configure_plotting, copy_evidence,
+                                  export_rows, save_figure, sha, write_json)
+    from .v12_workflow_costs import WORKLOADS, LABELS, inspect_suite, export_costs
+else:
+    from v12_figure_utils import (audit_alignment, configure_plotting, copy_evidence,
+                                  export_rows, save_figure, sha, write_json)
+    from v12_workflow_costs import WORKLOADS, LABELS, inspect_suite, export_costs
 
-CONTRACT = dict(figure='1', backend='python', final_size_mm=[180, 158], minimum_font_pt=8,
+CONTRACT = dict(figure='1', backend='python', final_size_mm=[180, 225], minimum_font_pt=8,
     question='How do explicit probability conventions connect analysis and measured computational cost?',
     panels=dict(a='Methods workflow; no quantitative claim.',
         b='All matched fresh-process external/Rust time ratios; startup included; all planned failures retained.',
-        c='All single-worker P0 conditioned fits; exploratory four-tip workload, not larger-tree extrapolation.'),
-    selection='All formal benchmark cells. All single-worker conditioned P0 replicates; legacy and parallel P0 groups retained in source data and supplementary P0 figure.',
-    uncertainty='Raw independent timing repetitions; no pooled inferential confidence interval across tree sizes or hosts.',
-    scope='No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
-    legends=dict(b='software color; host marker; tips recorded in source and point horizontal offset', c='host color/marker'),
-    outputs=['pdf', 'svg', 'png', 'source_data', 'source_inventory', 'caption', 'QA'])
+        c='Actual formal API workflow wall time; complete fresh attempts only; failures and partial resumes remain in source tables.'),
+    selection='All formal benchmark cells. All V1 three-parameter profiles, V2b B199/surrogate199, V2c six fits plus aggregation, case 5000-map and D2 200-tree/500-map workflows. P0 is supplementary only.',
+    uncertainty='Raw timing attempts; repeated attempts are not independent datasets. No pooled confidence interval across tree sizes, hosts or workers.',
+    scope='Actual calibration/case state counts only. Original 64/256-state complete-workflow benchmarks remain pending a dedicated protocol. Panel b memory remains supplementary. No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
+    legends=dict(b='software color; host marker; tips recorded in source and point horizontal offset', c='range-state color; reserved-CPU marker; counts show unique tasks observed/planned'),
+    missingness='N=0 remains NA; failed calls and partial checkpoint resumes cannot become full-cost points. Returned calls with retained inner failures are marked.',
+    raster_dpi=600,
+    outputs=['figure1.pdf', 'figure1.svg', 'figure1.png', 'source_data', 'source_inventory', 'caption', 'QA'])
 
 
 def workflow(ax):
@@ -76,7 +84,7 @@ def benchmark_rows(inputs):
                 rust=comparison['rust_reference']; left=record['execution'][software];right=record['execution'][rust]
                 passed=comparison['alignment_passed'] and left['returncode']==right['returncode']==0
                 ratio=left['wall_seconds']/right['wall_seconds'] if passed else None
-                if passed and (not np.isfinite(ratio) or ratio<=0): raise ValueError('invalid timing ratio')
+                if passed and (not np.isfinite(ratio) or ratio<=0): raise ValueError('timing ratio must be finite and strictly positive')
                 rows.append(dict(host=host,tips=record['tips'],states=record['states'],replicate=record['replicate'],
                     software=software,aligned=passed,time_ratio=ratio,
                     external_seconds=left['wall_seconds'],rust_seconds=right['wall_seconds'],
@@ -94,16 +102,20 @@ def main():
     p.add_argument('--output',required=True,type=Path)
     p.add_argument('--benchmark',action='append',default=[],metavar='HOST=RESULTS_JSON')
     p.add_argument('--p0',action='append',default=[],metavar='HOST=RESULTS_JSON')
+    p.add_argument('--workflow-input',type=Path,help='Locked full-suite timing inventory; never a P0 or smoke replacement')
     p.add_argument('--render',action='store_true');p.add_argument('--workflow-only',action='store_true')
     p.add_argument('--audit-scripts',type=Path)
     args=p.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     write_json(args.output/'figure_contract.json',CONTRACT)
+    write_json(args.output/'workflow_input_template.json',dict(schema='rustbears.workflow_costs.inputs.v1',formal=False,
+        budget=dict(path='LOCKED_BUDGET.json',sha256='PENDING'),suite='FORMAL_SUITE_DIRECTORY'))
+    costs=inspect_suite(args.workflow_input) if args.workflow_input else None
+    if costs is not None:export_costs(costs,args.output)
     if not args.render and not args.workflow_only:return
     if args.audit_scripts is None:p.error('rendering requires --audit-scripts for the final alignment check')
-    configure_plotting()
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
     if args.workflow_only:
+        configure_plotting()
+        import matplotlib.pyplot as plt
         fig=plt.figure(figsize=(180/25.4,55/25.4));ax=fig.add_axes([.025,.12,.95,.68]);workflow(ax)
         audit_alignment(fig,args.output,'workflow',args.audit_scripts)
         save_figure(fig,args.output,'workflow');plt.close(fig)
@@ -112,8 +124,10 @@ def main():
         return
     parse=lambda items:[(item.split('=',1)[0],Path(item.split('=',1)[1])) for item in items]
     benchmarks=parse(args.benchmark);p0=parse(args.p0)
-    if len(benchmarks)!=2 or len({x[0] for x in benchmarks})!=2 or {x[0] for x in benchmarks}!={x[0] for x in p0}:
-        raise ValueError('provide two distinct matched hosts for both --benchmark and --p0')
+    if len(benchmarks)!=2 or len({x[0] for x in benchmarks})!=2:
+        raise ValueError('provide two distinct matched benchmark hosts')
+    if costs is None:raise ValueError('Figure 1c requires a verified formal --workflow-input; P0 cannot substitute')
+    if len({r['host'] for r in costs['rows']})>1:raise ValueError('panel c requires one execution host; multi-host attempts need explicit separate panels')
     rows,grid=benchmark_rows(benchmarks);fitrows=[]
     for host,path in p0:
         data=json.loads(path.read_text())
@@ -123,12 +137,20 @@ def main():
             for row in group['rows']:
                 fitrows.append(dict(host=host,states=group['states'],workers=group['workers'],contract=group['contract'],
                     replicate=row['replicate'],seconds=row['elapsed_sec'],converged=row['converged'],
-                    plotted=group['workers']==1 and group['contract']=='tip_survival'))
-    copy_evidence([path for _,path in benchmarks+p0],args.output)
-    export_rows(args.output/'benchmark_source.csv',rows);export_rows(args.output/'p0_source.csv',fitrows)
-    fig=plt.figure(figsize=(180/25.4,158/25.4))
-    axa=fig.add_axes([.025,.70,.95,.235]);workflow(axa)
-    axb=fig.add_axes([.10,.13,.37,.43]);axc=fig.add_axes([.61,.13,.37,.43])
+                    plotted=False))
+    # Eligibility checks finish before opening any quantitative drawing backend.
+    if any(sha(path)!=digest for path,digest in costs['source_files'].items()):raise ValueError('workflow evidence changed after inspection')
+    configure_plotting()
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    archive=[Path(path) for path in costs['source_files'] if Path(path).name in ('workflow_timings.jsonl','suite_plan.json','suite_ledger.json')]
+    copy_evidence([path for _,path in benchmarks+p0]+[args.workflow_input]+archive,args.output)
+    export_rows(args.output/'benchmark_source.csv',rows)
+    if fitrows:export_rows(args.output/'supplementary_p0_source.csv',fitrows)
+    fig_width_mm=180
+    fig=plt.figure(figsize=(fig_width_mm/25.4,225/25.4))
+    axa=fig.add_axes([.025,.80,.95,.155]);workflow(axa)
+    axb=fig.add_axes([.31,.45,.63,.245]);axc=fig.add_axes([.31,.08,.63,.245])
     colors={'original_biogeobears':'#257C87','revbayes':'#A56529','lagrange_ng':'#767676'}
     names={'original_biogeobears':'BioGeoBEARS','revbayes':'RevBayes','lagrange_ng':'Lagrange-ng (v=2)'}
     states=grid[1];markers=['o','s'];tips=grid[0]
@@ -143,25 +165,32 @@ def main():
     axb.yaxis.set_major_formatter(plt.FuncFormatter(lambda value,_:format(value,'g')))
     handles=[Line2D([],[],color=color,marker='o',linestyle='',label=names[name],markersize=4) for name,color in colors.items()]
     handles += [Line2D([],[],color='black',marker=markers[i],linestyle='',label=host,markersize=4) for i,(host,_) in enumerate(benchmarks)]
-    axb.legend(handles=handles,loc='lower left',bbox_to_anchor=(-.12,1.015),frameon=False,ncol=2,columnspacing=.8,handletextpad=.3)
+    axb.legend(handles=handles,loc='lower left',bbox_to_anchor=(0,1.015),frameon=False,ncol=3,columnspacing=.8,handletextpad=.3)
     failed=sum(not row['aligned'] for row in rows)
-    axb.text(0,-.24,f'{failed}/{len(rows)} comparisons failed alignment',transform=axb.transAxes,fontsize=8)
-    hostcolors=['#257C87','#A56529'];fitstates=sorted({r['states'] for r in fitrows if r['plotted']})
-    for i,(host,_) in enumerate(p0):
-        for state in fitstates:
-            chosen=[r for r in fitrows if r['host']==host and r['states']==state and r['plotted']]
-            values=np.array([r['seconds'] for r in chosen]);x=fitstates.index(state)+(i-.5)*.17
-            axc.scatter(x+np.linspace(-.035,.035,len(values)),values,s=11,color=hostcolors[i],marker=markers[i],alpha=.6,linewidths=0)
-            for row,value,offset in zip(chosen,values,np.linspace(-.035,.035,len(values))):
-                if not row['converged']:axc.scatter(x+offset,value,marker='x',s=24,color='black')
-    axc.set_yscale('log');axc.yaxis.set_major_formatter(plt.FuncFormatter(lambda value,_:format(value,'g')))
-    axc.set_xticks(range(len(fitstates)),list(map(str,fitstates)));axc.set_xlabel('Range states');axc.set_ylabel('Conditioned fit time (s)')
-    axc.legend(handles=[Line2D([],[],color=hostcolors[i],marker=markers[i],linestyle='',label=host) for i,(host,_) in enumerate(p0)],frameon=False,loc='lower left',bbox_to_anchor=(0,1.015))
-    for letter,ax in [('b',axb),('c',axc)]:ax.text(-.19,1.28,letter,transform=ax.transAxes,fontweight='bold',fontsize=10)
+    axb.text(0,-.30,f'{failed}/{len(rows)} comparisons failed alignment',transform=axb.transAxes,fontsize=8)
+    state_values=sorted({r['states'] for r in costs['points']});cpu_values=sorted({r['workers'] for r in costs['points']})
+    palette=['#257C87','#A56529','#767676','#7C568D'];symbols=['o','s','^','D']
+    if len(state_values)>len(palette) or len(cpu_values)>len(symbols):raise ValueError('new timing strata require a prospective legend revision')
+    state_colors=dict(zip(state_values,palette));cpu_markers=dict(zip(cpu_values,symbols));labels=[]
+    for i,(category,label) in enumerate(zip(WORKLOADS,LABELS)):
+        chosen=[r for r in costs['points'] if r['workload']==category];counts=costs['category_counts'][category]
+        labels.append(f'{label}\n{counts["unique_tasks_observed"]}/{counts["planned_tasks"]} tasks')
+        for row,offset in zip(chosen,np.linspace(-.15,.15,len(chosen))):
+            axc.scatter(row['wall_seconds'],i+offset,s=13,color=state_colors[row['states']],marker=cpu_markers[row['workers']],alpha=.55,linewidths=0)
+            if row.get('n_failed',0) or row.get('n_trees_incomplete',0):axc.scatter(row['wall_seconds'],i+offset,marker='x',s=24,color='black')
+        if not chosen:axc.text(.02,i,'NA',transform=axc.get_yaxis_transform(),va='center',fontsize=8)
+    axc.set_xscale('log');axc.set_ylim(5.5,-.5);axc.set_yticks(range(6),labels)
+    axc.xaxis.set_major_formatter(plt.FuncFormatter(lambda value,_:format(value,'g')))
+    axc.set_xlabel('API workflow wall time (s)')
+    handles=[Line2D([],[],color=color,marker='o',linestyle='',label=f'{state} states',markersize=4) for state,color in state_colors.items()]
+    handles += [Line2D([],[],color='black',marker=marker,linestyle='',label=f'{cpu} CPUs reserved',markersize=4) for cpu,marker in cpu_markers.items()]
+    if any(r.get('n_failed',0) or r.get('n_trees_incomplete',0) for r in costs['points']):handles.append(Line2D([],[],color='black',marker='x',linestyle='',label='Inner failures',markersize=4))
+    if handles:axc.legend(handles=handles,loc='lower left',bbox_to_anchor=(-.22,1.03),frameon=False,ncol=3,columnspacing=.8,handletextpad=.3)
+    fig.text(.025,.745,'b',fontweight='bold',fontsize=10);fig.text(.025,.385,'c',fontweight='bold',fontsize=10)
     audit_alignment(fig,args.output,'figure1',args.audit_scripts)
     save_figure(fig,args.output,'figure1');plt.close(fig)
-    (args.output/'caption.md').write_text('Figure 1. Analysis flow and distinct computational workloads. (a) The probability convention travels with each analysis. (b) Each point is one matched fresh-process timing ratio, including interpreter startup, imports, model construction and one fixed-parameter likelihood. The reference and Rust Q, C, root weights and states are aligned in untimed checks, and each timed likelihood agrees within 1e-8 before a ratio is shown. Point offsets retain all tree sizes and repetitions; no pooled confidence interval is implied. Lagrange-ng is only the two-area v=2 stratum, not standard DEC. Memory, failure and unsupported results remain in the full source table. (c) Every single-worker P0 DEC+J fit to the fixed four-tip input, with exact tip-survival conditioning; crosses identify nonconvergence. This measured pilot workload does not predict optimization cost for larger trees or complete inferential procedures. Host load and executable hashes are archived with the input manifests.\n')
-    write_json(args.output/'script_binding.json',{'sha256':sha(__file__),'helper_sha256':sha(Path(__file__).with_name('v12_figure_utils.py'))})
+    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Each point is a mathematically aligned external/Rust fresh-process time ratio, including startup, imports, construction and one fixed likelihood evaluation; it is not an optimizer speedup. Lagrange-ng is restricted to the two-area v=2 stratum. Failed comparisons remain in source tables. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the LRT includes 199 null and 199 surrogate replicates; model averaging sums six sequential fits and aggregation only within the same invocation/dataset. Tree mapping denotes the planned 200-tree/500-map workload; crosses mark retained inner failures. Colors identify range states and symbols reserved CPUs, not measured CPU utilization. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the registered tree sizes, scenarios and probability routes; no pooled mean, confidence interval or suite elapsed time is inferred. P0 fits appear only in supplementary evidence.\n')
+    write_json(args.output/'script_binding.json',{'sha256':sha(__file__),'helper_sha256':sha(Path(__file__).with_name('v12_figure_utils.py')),'workflow_reader_sha256':sha(Path(__file__).with_name('v12_workflow_costs.py'))})
 
 
 if __name__=='__main__':main()
