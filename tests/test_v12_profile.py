@@ -50,9 +50,35 @@ class ProfileTests(unittest.TestCase):
         fit=b.FitResult(lnL=evaluation.lnL,params=params,n_params=k,aic=aic,
             aicc=aic+2*k*(k+1)/(n-k-1),n_evals=1,converged=True,
             evaluation=evaluation,model=model,message="Replay recorded D1 local optimum")
-        result=b.profile_ci(fit,params=["d"],n_grid=8,num_threads=2)
+        # Isolate the rebase/cache contract from platform-dependent discovery
+        # of the second basin. First solve a genuine constrained fit from its
+        # recorded good initial point, in the same original parameter box.
+        good=model.model.resolve(dict(d=params["d"],e=5.,j=.11646904731717003))
+        known_point=_profile_point(_PointTask(model,"d",params["d"],good,{},1))
+        self.assertTrue(known_point["converged"])
+        self.assertGreater(known_point["profile_obj"],fit.lnL+.5)
+        self.assertAlmostEqual(known_point["profile_obj"],
+                               model.evaluate(known_point["params"]).lnL,places=8)
+        references=[]
+        def replay_discovered_point(task):
+            references.append((task.value,task.initial["e"]))
+            if task.value==params["d"] and task.initial["e"]<1e-8:
+                return dict(known_point)
+            return _profile_point(task)
+        # Replay that actual constrained result only in the initial grid.
+        # The unrestricted rebase, new grid, roots and independent endpoint
+        # check all use the real optimizer and native likelihood.
+        with patch("rustbears.uncertainty.profile._profile_point",side_effect=replay_discovered_point):
+            result=b.profile_ci(fit,params=["d"],n_grid=8,num_threads=2)
         self.assertTrue(result.rebased_mle)
         self.assertGreater(result.obj_mle,fit.lnL+.5)
+        self.assertEqual({k:(p.min,p.max) for k,p in model.model.params.items()},
+                         {k:(p.min,p.max) for k,p in result.updated_fit.model.model.params.items()})
+        # A shared ordinate must really be refit after changing only the
+        # reference basin. A box-only cache generation fails this assertion.
+        upper_box=model.model.params["d"].max
+        self.assertTrue(any(value==upper_box and e<1e-8 for value,e in references))
+        self.assertTrue(any(value==upper_box and e>1. for value,e in references))
         interval=result.intervals["d"]
         self.assertLess(interval.endpoint_deviance_residual_max,1e-4)
         self.assertIsNotNone(interval.upper)
