@@ -2689,7 +2689,7 @@ plot_BSM_fns <- function(res1, res2=NULL, BSM_fns_res1, BSM_fns_res2=NULL, res1n
 
 	dev.off()
 	cmdstr = paste("open ", pdffn, sep="")
-	system(cmdstr)
+	if (interactive()) system(cmdstr)
 
 	return(pdffn)
 	} # END plot_BSM_fns
