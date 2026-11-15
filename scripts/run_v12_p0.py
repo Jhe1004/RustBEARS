@@ -72,7 +72,7 @@ def run_group(args):
         with model.prepared_likelihood(evaluation_parameters,num_threads=1) as prepared:
             for _ in range(10):prepared.evaluate()
             tick=time.perf_counter()
-            evaluation_values=[prepared.evaluate().lnL for _ in range(100)]
+            evaluation_values=[prepared.evaluate() for _ in range(100)]
             evaluation_seconds=(time.perf_counter()-tick)/len(evaluation_values)
         start=time.perf_counter()
         if args.workers==1:rows=list(map(fit_one,range(args.repetitions)))
