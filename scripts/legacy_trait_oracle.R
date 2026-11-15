@@ -26,6 +26,9 @@ configuration <- input$run_config
 if (!is.list(configuration) || is.null(names(configuration)) || anyDuplicated(names(configuration))) stop('run_config must be a named list')
 forbidden <- c('BioGeoBEARS_model_object','trait','likelihood_conditioning','root_prior','root_prior_spec','allow_null_tips')
 if (any(names(configuration) %in% forbidden)) stop('run_config contains package-bound objects or nonlegacy conventions')
+allowed <- c(setdiff(names(formals(BioGeoBEARS::define_BioGeoBEARS_run)),
+                     c('BioGeoBEARS_model_object','states_list','tmpwd')), 'wd','trait_Pmat_txt')
+if (any(!names(configuration) %in% allowed)) stop('run_config contains an unknown or cached field: ',paste(setdiff(names(configuration),allowed),collapse=', '))
 for (field in c('trfn','geogfn')) {
     path <- configuration[[field]]
     if (!is.character(path) || length(path)!=1L || !file.exists(path)) stop('missing input file: ',field)

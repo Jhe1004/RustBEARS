@@ -31,7 +31,8 @@ def load_case(case, tree_path, budget_path):
     budget=json.loads(budget_path.read_text())
     if manifest.get('formal') is not True or result.get('formal') is not True or manifest.get('mode')!='formal':
         raise ValueError('Figure 3 rejects smoke/pilot results')
-    if result.get('status')!='complete':raise ValueError('case workflow has unprocessed tasks')
+    if result.get('status') not in ('complete','incomplete_profiles','complete_with_tree_failures'):
+        raise ValueError('case workflow has unprocessed tasks')
     if manifest['case_id']!='D2_Trimezieae' or manifest['tip_count']!=57 or manifest['areas']!=['E','N']:
         raise ValueError('inputs differ from the prospectively selected D2 case')
     lock=manifest.get('locked_budget') or {}
@@ -72,14 +73,37 @@ def main():
     profiles=[];events=[];boot=[]
     for contract in contracts:
         directory=args.case/contract
-        for filename in ['models.csv','multitree_probability_bounds.csv','ancestral_arrays.npz',
-                         'joint_event_precision.csv','joint_route_comparisons.csv','joint_bsm_summary.json']:
+        for filename in ['models.csv','multitree_probability_bounds.csv','ancestral_arrays.npz','fitted_parameters.json','profile_status.json']:
             paths.append(directory/filename)
+        fitted=json.loads((directory/'fitted_parameters.json').read_text())
+        statuses=json.loads((directory/'profile_status.json').read_text())
+        if statuses!=result['contracts'][contract]['profiles']:
+            raise ValueError('profile status ledger and case report differ')
         for index in range(1,7):
-            path=directory/f'profile_{index}.csv';paths.append(path)
-            table=pd.read_csv(path);table['model']=manifest['models'][index-1];table['contract']=contract
+            path=directory/f'profile_{index}.csv';status=statuses[index-1]
+            if status['status']=='complete':
+                paths.append(path);table=pd.read_csv(path)
+            elif status['status']=='numerically_uncertified':
+                # An explicitly processed failure remains an unavailable row;
+                # it cannot disappear simply because no interval CSV exists.
+                table=pd.DataFrame([dict(param=param,mle=fitted[index-1]['params'][param],lower=np.nan,upper=np.nan,
+                    status_lower='numerically_uncertified',status_upper='numerically_uncertified',
+                    interval_kind='unavailable',error=status.get('error'))
+                    for param in manifest['model_parameter_bounds'][manifest['models'][index-1]]])
+            else:raise ValueError('unprocessed profile status')
+            table['model']=manifest['models'][index-1];table['contract']=contract
             profiles.append(table)
-        event=pd.read_csv(directory/'joint_event_precision.csv');event['contract']=contract;events.append(event)
+        event_path=directory/'joint_event_precision.csv'
+        complete=result['contracts'][contract]['multitree']['n_complete']
+        if complete:
+            event=pd.read_csv(event_path)
+            for filename in ['joint_event_precision.csv','joint_route_comparisons.csv','joint_bsm_summary.json']:
+                paths.append(directory/filename)
+        else:
+            event=pd.DataFrame([dict(event_type=kind,mean=np.nan,rpi_025=np.nan,rpi_975=np.nan,
+                mean_mc_ci_lower=np.nan,mean_mc_ci_upper=np.nan,assessed=False,assessment='no_complete_trees')
+                for kind in ['d','e','a','j','y','s','v','t']])
+        event['contract']=contract;events.append(event)
         for row in result['contracts'][contract]['bootstrap']:boot.append(dict(contract=contract,**row))
     profiles=pd.concat(profiles,ignore_index=True);events=pd.concat(events,ignore_index=True)
     profiles.to_csv(args.output/'profile_source.csv',index=False);events.to_csv(args.output/'event_source.csv',index=False)
@@ -173,6 +197,9 @@ def main():
             selected=events[(events.contract==contract)&(events.event_type==event_type)]
             if len(selected)!=1:raise ValueError('missing predeclared event type')
             row=selected.iloc[0];y=ei+(ci-.5)*.22
+            if not np.isfinite(row['mean']):
+                e.text(.02,y,'NA',transform=e.get_yaxis_transform(),color=colors[ci],fontsize=8)
+                continue
             e.plot([row.rpi_025,row.rpi_975],[y,y],color=colors[ci],linewidth=.7)
             if np.isfinite([row.mean_mc_ci_lower,row.mean_mc_ci_upper]).all():
                 e.plot([row.mean_mc_ci_lower,row.mean_mc_ci_upper],[y,y],color=colors[ci],linewidth=3)
