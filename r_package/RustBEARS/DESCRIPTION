@@ -14,6 +14,7 @@ Maintainer: Jian He <j.he930724@gmail.com>
 Depends:
     R (>= 4.0.0)
 Imports: methods, optimx, parallel, plotrix, GenSA, ape, phytools, expm, fdrtool, httr, statmod, SparseM, spam, stringr, MultinomialCI, digest
+Remotes: MultinomialCI=url::https://cran.r-project.org/src/contrib/Archive/MultinomialCI/MultinomialCI_1.2.tar.gz
 Suggests: testthat, devtools, gdata, phylobase, rexpokit, cladoRcpp, FD, snow, minqa, knitr, rmarkdown
 VignetteBuilder: knitr
 Description: Drop-in function-compatible R interface to the BioGeoBEARS historical biogeography framework powered by RustBEARS, a self-contained, memory-safe Rust computational engine (zero external Fortran/C++ package compilation required). Named 'RustBEARS' to preserve the upstream 'BioGeoBEARS' package namespace while keeping all modelling, optimization, stochastic mapping, and plotting function signatures 100% compatible. Original foundational methodology and R modelling framework by Nicholas J. Matzke (2013, 2014). As a matter of scholarly credit, users publishing results are requested to cite both the foundational Matzke (2013, 2014) publications and RustBEARS; run citation("RustBEARS") for complete co-citation entries. Derivative technical support and compilation issues should be reported to the GitHub issue tracker below rather than the original upstream author.

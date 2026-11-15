@@ -212,12 +212,24 @@ class CheckpointStore:
 
 def frame_arrays(frame, prefix):
     """Losslessly persist event-table columns without pickle/object arrays."""
+    import pandas as pd
     result = {}
     dtypes = {}
     for index, column in enumerate(frame.columns):
         series = frame[column]
         key = f"{prefix}_{index}"
-        if series.dtype.kind == "O":
+        if isinstance(series.dtype, pd.StringDtype):
+            # pandas 3 infers a StringDtype for ordinary text columns. Keep
+            # its storage and missing-value convention, rather than silently
+            # restoring it as an object column (or changing pandas.NA to NaN).
+            result[key] = np.asarray([
+                _json(None if pd.isna(v) else str(v)) for v in series
+            ], dtype=str)
+            dtypes[column] = {
+                "kind": "pandas_string", "storage": series.dtype.storage,
+                "na_value": "pd.NA" if series.dtype.na_value is pd.NA else "nan",
+            }
+        elif series.dtype.kind == "O":
             encoded = [_json(_record_encode(v)) for v in series]
             result[key] = np.asarray(encoded, dtype=str)
             dtypes[column] = "json"
@@ -232,6 +244,16 @@ def restore_frame(metadata, arrays):
     values = {}
     for index, column in enumerate(metadata["columns"]):
         a = arrays[f"{metadata['prefix']}_{index}"]
-        values[column] = ([_record_decode(json.loads(v)) for v in a]
-                          if metadata["dtypes"][column] == "json" else a)
+        dtype = metadata["dtypes"][column]
+        if isinstance(dtype, dict) and dtype.get("kind") == "pandas_string":
+            kwargs = {"storage": dtype["storage"]}
+            if dtype["na_value"] == "nan":
+                kwargs["na_value"] = np.nan
+            values[column] = pd.Series([json.loads(v) for v in a],
+                                       dtype=pd.StringDtype(**kwargs))
+        elif dtype == "json":
+            values[column] = pd.Series([_record_decode(json.loads(v)) for v in a],
+                                       dtype=object)
+        else:
+            values[column] = pd.Series(a, dtype=dtype)
     return pd.DataFrame(values)

@@ -73,11 +73,23 @@ python -m pip install --no-build-isolation --no-deps .
 
 Requires R `>= 4.0.0`. No `rexpokit` or `cladoRcpp` Fortran/C++ compilation is required. Build and install directly from `r_package/RustBEARS`:
 
+The legacy multinomial-summary dependency `MultinomialCI` is archived on CRAN.
+The package's `Remotes` field retains version 1.2 from the official CRAN archive.
+To install required R dependencies and the local package, run:
+
+```r
+install.packages("pak", repos = "https://cloud.r-project.org")
+pak::pkg_install("local::r_package/RustBEARS",
+                 dependencies = c("Depends", "Imports", "LinkingTo"))
+```
+
+If the dependencies are already installed, use:
+
 ```bash
 R CMD INSTALL r_package/RustBEARS
 ```
 
-Or generate a reproducible source tarball first via `./scripts/build_release_artifacts.sh` and install `dist/RustBEARS_1.1.4.tar.gz`.
+Or generate a reproducible source tarball first via `./scripts/build_release_artifacts.sh` and install the versioned `dist/RustBEARS_*.tar.gz` file.
 
 ---
 

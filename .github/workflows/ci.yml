@@ -23,9 +23,9 @@ jobs:
         # macOS 14 was retired in November 2026; macos-15 is arm64.
         os: [ubuntu-latest, macos-15, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Verify source mirror
@@ -40,7 +40,7 @@ jobs:
           python -m pip install --no-deps dist/rustbears-*.whl
       - name: Test installed package outside checkout
         run: python scripts/test_installed_package.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: python-${{ matrix.os }}
@@ -58,9 +58,9 @@ jobs:
       _R_CHECK_FORCE_SUGGESTS_: false
       R_KEEP_PKG_SOURCE: yes
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: r-lib/actions/setup-r@v2
@@ -94,7 +94,7 @@ jobs:
           Rscript tests/test_r_v12_contracts.R
           Rscript tests/test_r_v12_statistics.R
           Rscript tests/test_r_v12_summaries.R
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: r-${{ matrix.os }}

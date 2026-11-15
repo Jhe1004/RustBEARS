@@ -1,0 +1,7 @@
+# Use stable source text on every checkout, including executable configure scripts.
+* text=auto eol=lf
+
+# Cargo verifies vendor files byte-for-byte against .cargo-checksum.json.
+# Preserve upstream bytes even when a Windows user has core.autocrlf enabled.
+rust/vendor/** -text
+r_package/RustBEARS/src/rust/vendor/** -text
