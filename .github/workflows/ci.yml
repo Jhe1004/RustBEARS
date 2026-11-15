@@ -79,6 +79,7 @@ jobs:
             any::knitr
             any::rmarkdown
             any::devtools
+            any::remotes
             nmatzke/rexpokit@bfc071ec6d2235a906bbeee122f711f6fea1b78b
             nmatzke/cladoRcpp@bc5198f075f135eb68913cf987a2f5169021c7ce
             any::FD
