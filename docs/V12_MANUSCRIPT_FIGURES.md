@@ -15,11 +15,30 @@ draws only the non-data methods panel. For the data figure use `--render`, two
 The benchmark grids must match. Formal benchmark records contain every planned cell, including
 failures; an unsupported or failed comparison cannot acquire a time ratio.
 
-Panel b uses all matched external/Rust fresh-process timing ratios. Startup,
-imports and input parsing are included, so these are not kernel or optimizer
-speedups. Each comparator has its own mathematically aligned Rust convention.
-Lagrange-ng contributes only the two-area `v=2` stratum. Peak process RSS and
-unsupported/failed comparisons remain in the full source table. Panel c shows
+Panel b has equal-sized sibling axes: **wall-time ratio (left)** and **peak-RSS
+ratio (right)**, both external/Rust on a logarithmic scale, with a reference line at one.
+All tips, state counts, hosts and repeats in the matched grid appear as raw
+points; no pooled average or interval is inferred. One shared legend sits in a
+reserved header inside the bounded b panel. Software colors and host symbols
+have the same meaning in both axes; small horizontal offsets retain tip counts
+and repeated measurements without changing their state category.
+
+Startup, imports and input parsing are included, so the ratios are not kernel
+or optimizer speedups, or measures of kernel-allocation efficiency. Peak RSS is
+the whole fresh process measured separately with POSIX `wait4`, including its
+interpreter/runtime. Each comparator has its own mathematically aligned Rust
+convention. Lagrange-ng contributes only the two-area `v=2` stratum.
+
+Failed or timed-out comparisons have no numerical ratio even when their partial
+process measurements exist. They are marked in a separate non-numeric status
+strip below each axis. A missing or zero RSS is unavailable, never zero memory;
+negative, non-finite or non-numeric measurements are rejected. All raw seconds,
+RSS bytes, return codes and timeout flags remain in `benchmark_source.csv`.
+`benchmark_counts.json` retains planned and observed denominators, timeouts,
+other failures and unavailable RSS pairs; unavailable memory can overlap a
+failure. Missingness therefore cannot disappear through successful-only ratios.
+
+Panel c shows
 actual formal uncertainty API workflow costs from the locked complete suite,
 with fresh full calls separated from partial checkpoint resumes. See
 [the workflow cost contract](V12_FORMAL_WORKFLOW_COST_FIGURE.md) for its fixed
@@ -29,8 +48,11 @@ six workload classes, source checks and missing-task denominators. Optional
 This preparation is not a completed Figure 1. Actual calibration/case grids
 cover their registered state counts (currently 4/16/32); the original proposal's
 64/256-state complete-workflow benchmark requires a separate locked experiment.
-Panel b memory is currently exported in the full source table, not a main-panel
-memory curve. No formal quantitative panel has yet been rendered or approved.
+The layout remains 180 × 225 mm with an 8 pt minimum. Panel b now includes
+memory in the main figure, but its code and preflight checks are not a rendered
+layout approval. Real final-size text, collision and alignment QA awaits the
+full formal inputs; no formal quantitative panel or mock quantitative figure
+has been rendered for this revision.
 
 ## Figure 3: locked D2 case
 

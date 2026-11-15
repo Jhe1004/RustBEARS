@@ -22,15 +22,18 @@ else:
 CONTRACT = dict(figure='1', backend='python', final_size_mm=[180, 225], minimum_font_pt=8,
     question='How do explicit probability conventions connect analysis and measured computational cost?',
     panels=dict(a='Methods workflow; no quantitative claim.',
-        b='All matched fresh-process external/Rust time ratios; startup included; all planned failures retained.',
+        b='Two sibling axes: all matched fresh-process external/Rust wall-time and peak-RSS ratios; all planned failures retained.',
         c='Actual formal API workflow wall time; complete fresh attempts only; failures and partial resumes remain in source tables.'),
     selection='All formal benchmark cells. All V1 three-parameter profiles, V2b B199/surrogate199, V2c six fits plus aggregation, case 5000-map and D2 200-tree/500-map workflows. P0 is supplementary only.',
     uncertainty='Raw timing attempts; repeated attempts are not independent datasets. No pooled confidence interval across tree sizes, hosts or workers.',
-    scope='Actual calibration/case state counts only. Original 64/256-state complete-workflow benchmarks remain pending a dedicated protocol. Panel b memory remains supplementary. No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
-    legends=dict(b='software color; host marker; tips recorded in source and point horizontal offset', c='range-state color; reserved-CPU marker; counts show unique tasks observed/planned'),
+    scope='Actual calibration/case state counts only. Original 64/256-state complete-workflow benchmarks remain pending a dedicated protocol. Peak RSS is the whole fresh process measured by wait4, including interpreter/runtime, not kernel allocation. No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
+    legends=dict(b='one bounded panel header shared by both axes: software color; host marker; unavailable/failed status markers; tips and repeats retained by horizontal offsets and source rows', c='range-state color; reserved-CPU marker; counts show unique tasks observed/planned'),
     missingness='N=0 remains NA; failed calls and partial checkpoint resumes cannot become full-cost points. Returned calls with retained inner failures are marked.',
     raster_dpi=600,
-    outputs=['figure1.pdf', 'figure1.svg', 'figure1.png', 'source_data', 'source_inventory', 'caption', 'QA'])
+    outputs=['figure1.pdf', 'figure1.svg', 'figure1.png', 'figure1.tiff', 'source_data', 'source_inventory', 'caption', 'QA'])
+
+BENCHMARK_COLORS={'original_biogeobears':'#257C87','revbayes':'#A56529','lagrange_ng':'#767676'}
+BENCHMARK_NAMES={'original_biogeobears':'BioGeoBEARS','revbayes':'RevBayes','lagrange_ng':'Lagrange-ng (v=2)'}
 
 
 def workflow(ax):
@@ -57,7 +60,7 @@ def workflow(ax):
         ax.add_patch(FancyArrowPatch((x+w+.008,y+h/2),(tx-.008,ty+th/2),
             arrowstyle='-|>',mutation_scale=8,linewidth=.7,color='#39474D'))
     ax.text(.38,.10,'Bootstrap: simulate → refit',fontsize=8,ha='center')
-    ax.text(0,1.11,'a',fontweight='bold',fontsize=10)
+    ax.text(0,1.11,'a)',fontweight='bold',fontsize=10)
 
 
 def benchmark_rows(inputs):
@@ -82,19 +85,92 @@ def benchmark_rows(inputs):
                 raise ValueError('missing planned software comparison')
             for software,comparison in record['comparisons'].items():
                 rust=comparison['rust_reference']; left=record['execution'][software];right=record['execution'][rust]
-                passed=comparison['alignment_passed'] and left['returncode']==right['returncode']==0
+                timeout=left.get('timed_out',False) or right.get('timed_out',False)
+                passed=comparison['alignment_passed'] and left['returncode']==right['returncode']==0 and not timeout
+                for execution in (left,right):
+                    for key in ('wall_seconds','peak_rss_bytes'):
+                        value=execution.get(key)
+                        if value is not None and (isinstance(value,bool) or not isinstance(value,(int,float)) or not np.isfinite(value) or value<0):
+                            raise ValueError(f'{key} must be a finite nonnegative number or unavailable')
+                    if passed and (execution.get('wall_seconds') is None or execution['wall_seconds']<=0):
+                        raise ValueError('aligned process time must be finite and strictly positive')
                 ratio=left['wall_seconds']/right['wall_seconds'] if passed else None
                 if passed and (not np.isfinite(ratio) or ratio<=0): raise ValueError('timing ratio must be finite and strictly positive')
+                # An absent/zero RSS means no usable measurement, never zero memory.
+                rss_left,rss_right=left.get('peak_rss_bytes'),right.get('peak_rss_bytes')
+                rss_available=all(value is not None and value>0 for value in (rss_left,rss_right))
+                memory_ratio=rss_left/rss_right if passed and rss_available else None
+                if memory_ratio is not None and (not np.isfinite(memory_ratio) or memory_ratio<=0):
+                    raise ValueError('memory ratio must be finite and strictly positive')
                 rows.append(dict(host=host,tips=record['tips'],states=record['states'],replicate=record['replicate'],
-                    software=software,aligned=passed,time_ratio=ratio,
-                    external_seconds=left['wall_seconds'],rust_seconds=right['wall_seconds'],
-                    external_peak_rss_bytes=left['peak_rss_bytes'],rust_peak_rss_bytes=right['peak_rss_bytes'],
+                    software=software,aligned=passed,time_ratio=ratio,memory_ratio=memory_ratio,
+                    external_seconds=left.get('wall_seconds'),rust_seconds=right.get('wall_seconds'),
+                    external_peak_rss_bytes=rss_left,rust_peak_rss_bytes=rss_right,
+                    external_peak_rss_mib=rss_left/(1024**2) if rss_left is not None and rss_left>0 else None,
+                    rust_peak_rss_mib=rss_right/(1024**2) if rss_right is not None and rss_right>0 else None,
+                    memory_available=rss_available,external_returncode=left['returncode'],rust_returncode=right['returncode'],
+                    external_timed_out=left.get('timed_out',False),rust_timed_out=right.get('timed_out',False),
                     maximum_lnL_error=comparison['maximum_lnL_error'],
-                    status='aligned' if passed else 'failed_or_unsupported',
+                    status='aligned' if passed else 'timeout' if timeout else 'failed_or_unsupported',
                     input_tree_sha256=record['input_sha256']['tree.newick']))
         if len(observed)!=len(set(observed)) or set(observed)!=expected:
             raise ValueError('benchmark grid is incomplete or duplicated; retain failed cells as records')
     return rows, grid
+
+
+def benchmark_counts(rows):
+    """Denominators count every planned comparison, not only successful pairs."""
+    return dict(planned=len(rows),time_available=sum(r['time_ratio'] is not None for r in rows),
+        memory_ratio_available=sum(r['memory_ratio'] is not None for r in rows),
+        timeouts=sum(r['status']=='timeout' for r in rows),
+        other_failed=sum(r['status']=='failed_or_unsupported' for r in rows),
+        missing_rss_pairs=sum(not r['memory_available'] for r in rows))
+
+
+def draw_benchmark_panel(fig,rows,grid,hosts):
+    """Matched process cost ratios; missing values use a non-numeric status band."""
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Rectangle
+    import matplotlib.pyplot as plt
+    # The header/footer and both equal plot rectangles belong to one panel b.
+    frame=(.025,.39,.95,.395)
+    fig.add_artist(Rectangle(frame[:2],frame[2],frame[3],transform=fig.transFigure,
+        fill=False,edgecolor='#C9CED1',linewidth=.6))
+    header=fig.add_axes([.075,.705,.87,.068]);header.set_axis_off()
+    axes=[fig.add_axes([.115,.482,.345,.195]),fig.add_axes([.615,.482,.345,.195])]
+    states,tips=grid[1],grid[0];markers=['o','s']
+    counts=benchmark_counts(rows)
+    for ax,metric,label in zip(axes,['time_ratio','memory_ratio'],
+            ['External / Rust\nprocess wall time','External / Rust\npeak process RSS']):
+        for row in rows:
+            host=hosts.index(row['host']);software=list(BENCHMARK_COLORS).index(row['software'])
+            x=states.index(row['states'])+(software-1)*.20+(host-.5)*.07
+            x+=(tips.index(row['tips'])-(len(tips)-1)/2)*.018
+            x+=(row['replicate']-(grid[2]-1)/2)*(.012/max(1,grid[2]-1))
+            color=BENCHMARK_COLORS[row['software']]
+            if row[metric] is not None:
+                ax.scatter(x,row[metric],s=13,marker=markers[host],color=color,alpha=.65,linewidths=0)
+            else:
+                marker='+' if row['status']=='timeout' else 'x' if not row['aligned'] else '|'
+                ax.scatter(x,-.14,s=18,marker=marker,color=color,linewidths=.8,
+                    transform=ax.get_xaxis_transform(),clip_on=False)
+        ax.axhline(1,color='#333333',linewidth=.7,linestyle=':')
+        ax.set_yscale('log');ax.set_xlim(-.55,len(states)-.45)
+        ax.set_xticks(range(len(states)),list(map(str,states)));ax.set_ylabel(label)
+        ax.set_xlabel('Range states',labelpad=20)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value,_:format(value,'g')))
+        ax.set_title('Time' if metric=='time_ratio' else 'Peak RSS',loc='left',fontsize=8,pad=5)
+    handles=[Line2D([],[],color=color,marker='o',linestyle='',label=BENCHMARK_NAMES[name],markersize=4)
+             for name,color in BENCHMARK_COLORS.items()]
+    handles += [Line2D([],[],color='black',marker=markers[i],linestyle='',label=host,markersize=4) for i,host in enumerate(hosts)]
+    for number,marker,label in [(counts['timeouts'],'+','Timeout'),(counts['other_failed'],'x','Failed / unaligned'),
+                                 (counts['missing_rss_pairs'],'|','RSS unavailable')]:
+        if number:handles.append(Line2D([],[],color='black',marker=marker,linestyle='',label=label,markersize=4))
+    header.legend(handles=handles,loc='center',frameon=False,ncol=3,columnspacing=.8,handletextpad=.3)
+    fig.text(.025,.795,'b)',fontweight='bold',fontsize=10)
+    fig.text(.055,.414,f"Time {counts['time_available']}/{counts['planned']}; RSS ratios {counts['memory_ratio_available']}/{counts['planned']}",fontsize=8)
+    fig.text(.055,.399,f"Timeout {counts['timeouts']}; other failed {counts['other_failed']}; RSS unavailable {counts['missing_rss_pairs']}",fontsize=8)
+    return counts
 
 
 def main():
@@ -147,27 +223,16 @@ def main():
     copy_evidence([path for _,path in benchmarks+p0]+[args.workflow_input]+archive,args.output)
     export_rows(args.output/'benchmark_source.csv',rows)
     if fitrows:export_rows(args.output/'supplementary_p0_source.csv',fitrows)
-    fig_width_mm=180
-    fig=plt.figure(figsize=(fig_width_mm/25.4,225/25.4))
-    axa=fig.add_axes([.025,.80,.95,.155]);workflow(axa)
-    axb=fig.add_axes([.31,.45,.63,.245]);axc=fig.add_axes([.31,.08,.63,.245])
-    colors={'original_biogeobears':'#257C87','revbayes':'#A56529','lagrange_ng':'#767676'}
-    names={'original_biogeobears':'BioGeoBEARS','revbayes':'RevBayes','lagrange_ng':'Lagrange-ng (v=2)'}
-    states=grid[1];markers=['o','s'];tips=grid[0]
-    for row in rows:
-        if not row['aligned']:continue
-        host=[x[0] for x in benchmarks].index(row['host']);software=list(colors).index(row['software'])
-        x=states.index(row['states'])+(software-1)*.20+(host-.5)*.07+(tips.index(row['tips'])-(len(tips)-1)/2)*.018
-        axb.scatter(x,row['time_ratio'],s=13,marker=markers[host],color=colors[row['software']],alpha=.65,linewidths=0)
-    axb.axhline(1,color='#333333',linewidth=.7,linestyle=':')
-    axb.set_yscale('log');axb.set_xticks(range(len(states)),list(map(str,states)))
-    axb.set_xlabel('Range states');axb.set_ylabel('External / Rust process time')
-    axb.yaxis.set_major_formatter(plt.FuncFormatter(lambda value,_:format(value,'g')))
-    handles=[Line2D([],[],color=color,marker='o',linestyle='',label=names[name],markersize=4) for name,color in colors.items()]
-    handles += [Line2D([],[],color='black',marker=markers[i],linestyle='',label=host,markersize=4) for i,(host,_) in enumerate(benchmarks)]
-    axb.legend(handles=handles,loc='lower left',bbox_to_anchor=(0,1.015),frameon=False,ncol=3,columnspacing=.8,handletextpad=.3)
-    failed=sum(not row['aligned'] for row in rows)
-    axb.text(0,-.30,f'{failed}/{len(rows)} comparisons failed alignment',transform=axb.transAxes,fontsize=8)
+    fig_width_mm,fig_height_mm=CONTRACT['final_size_mm']
+    fig=plt.figure(figsize=(fig_width_mm/25.4,fig_height_mm/25.4))
+    axa=fig.add_axes([.025,.825,.95,.135]);workflow(axa)
+    benchmark_summary=draw_benchmark_panel(fig,rows,grid,[host for host,_ in benchmarks])
+    write_json(args.output/'benchmark_counts.json',benchmark_summary)
+    write_json(args.output/'legend_coverage.json',dict(b=dict(axes=['b1','b2'],
+        owner='bounded panel b',position='shared internal header',
+        mappings=['software color','host marker','non-numeric status markers']),
+        c=dict(owner='panel c',position='local header',mappings=['state color','reserved-CPU marker'])))
+    axc=fig.add_axes([.31,.075,.63,.24])
     state_values=sorted({r['states'] for r in costs['points']});cpu_values=sorted({r['workers'] for r in costs['points']})
     palette=['#257C87','#A56529','#767676','#7C568D'];symbols=['o','s','^','D']
     if len(state_values)>len(palette) or len(cpu_values)>len(symbols):raise ValueError('new timing strata require a prospective legend revision')
@@ -186,10 +251,10 @@ def main():
     handles += [Line2D([],[],color='black',marker=marker,linestyle='',label=f'{cpu} CPUs reserved',markersize=4) for cpu,marker in cpu_markers.items()]
     if any(r.get('n_failed',0) or r.get('n_trees_incomplete',0) for r in costs['points']):handles.append(Line2D([],[],color='black',marker='x',linestyle='',label='Inner failures',markersize=4))
     if handles:axc.legend(handles=handles,loc='lower left',bbox_to_anchor=(-.22,1.03),frameon=False,ncol=3,columnspacing=.8,handletextpad=.3)
-    fig.text(.025,.745,'b',fontweight='bold',fontsize=10);fig.text(.025,.385,'c',fontweight='bold',fontsize=10)
+    fig.text(.025,.355,'c)',fontweight='bold',fontsize=10)
     audit_alignment(fig,args.output,'figure1',args.audit_scripts)
     save_figure(fig,args.output,'figure1');plt.close(fig)
-    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Each point is a mathematically aligned external/Rust fresh-process time ratio, including startup, imports, construction and one fixed likelihood evaluation; it is not an optimizer speedup. Lagrange-ng is restricted to the two-area v=2 stratum. Failed comparisons remain in source tables. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the LRT includes 199 null and 199 surrogate replicates; model averaging sums six sequential fits and aggregation only within the same invocation/dataset. Tree mapping denotes the planned 200-tree/500-map workload; crosses mark retained inner failures. Colors identify range states and symbols reserved CPUs, not measured CPU utilization. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the registered tree sizes, scenarios and probability routes; no pooled mean, confidence interval or suite elapsed time is inferred. P0 fits appear only in supplementary evidence.\n')
+    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Left, time; right, peak RSS. Each point is a matched external/Rust ratio for whole fresh-process wall time or peak resident memory (RSS), respectively. Both measurements include interpreter/runtime startup, imports, construction and one fixed likelihood evaluation; neither establishes optimizer speedup or kernel-allocation efficiency. Peak RSS is measured separately for each process using wait4. All registered tips, states, hosts and repeats are retained; horizontal offsets separate software, host, tip count and repeat. Lagrange-ng is restricted to the two-area v=2 stratum. The shared header owns both axes. A missing or zero RSS yields an unavailable ratio, never a zero-memory value. Timeout, failed/unaligned and unavailable marks appear in a non-numeric strip below each axis; they do not encode a numeric ratio. Counts retain every planned comparison, and RSS-unavailable counts may overlap failures. Raw seconds, bytes, return codes and timeout flags remain in the source table. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the LRT includes 199 null and 199 surrogate replicates; model averaging sums six sequential fits and aggregation only within the same invocation/dataset. Tree mapping denotes the planned 200-tree/500-map workload; crosses mark retained inner failures. Colors identify range states and symbols reserved CPUs, not measured CPU utilization. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the registered tree sizes, scenarios and probability routes; no pooled mean, confidence interval or suite elapsed time is inferred. P0 fits appear only in supplementary evidence.\n')
     write_json(args.output/'script_binding.json',{'sha256':sha(__file__),'helper_sha256':sha(Path(__file__).with_name('v12_figure_utils.py')),'workflow_reader_sha256':sha(Path(__file__).with_name('v12_workflow_costs.py'))})
 
 
