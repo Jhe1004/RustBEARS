@@ -49,12 +49,19 @@ speedup or a claim that all cores will be busy.
 
 ## Resource and process ownership
 
-The maximum number of simultaneous workflow processes is
-`floor(cpu_budget / workers_per_job)`. Each process receives the requested
-outer-worker count where its adapter supports parallelism; native and BLAS
-thread environments remain one. V4 is serial and conservatively reserves the
-same allocation. The launcher requires normal process priority. It does not
-change another process, machine-wide scheduling policy or existing user job.
+The launcher admits jobs in fixed FIFO order while the sum of their reserved
+workers stays within `cpu_budget`. `--large-v1-workers` assigns a separate,
+prospectively fixed allocation to the four V1 jobs with 150 tips and five areas;
+all other jobs use `--workers-per-job`. The Tongfang design reserves at most 40
+workers, with eight for each large V1 job and two for each other job. This is a
+resource reservation, not CPU affinity or a claim about measured utilization.
+
+Each fitting task uses one native thread and BLAS thread. Single-tree BSM uses
+its job's allocated native-worker count without a concurrent outer fitting pool;
+these workers are already included in that job's reservation. V4 is serial and
+conservatively reserves the regular allocation. The launcher requires normal
+process priority. It does not change another process, machine-wide scheduling
+policy or existing user job.
 
 A process-held file lock protects both planning and execution. Children inherit
 the lock descriptor, so killing the launcher cannot permit another launcher to
