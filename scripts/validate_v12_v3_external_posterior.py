@@ -82,6 +82,16 @@ def prepare(args):
     out=Path(args.output_dir);out.mkdir(parents=True,exist_ok=True)
     if min(args.replicates,args.tips,args.areas,args.sites)<1 or args.tips<3 or args.areas>8 or args.clock_rate<=0:
         raise ValueError("invalid simulation dimensions or clock rate")
+    budget_record=None
+    if getattr(args,"mode","pilot")=="formal":
+        if args.budget_json is None:raise ValueError("formal V3 preparation requires a locked budget")
+        from scripts.v12_formal_protocol import load_locked_budget,select_budget_job
+        budget,budget_record=load_locked_budget(args.budget_json,source_script=__file__,execute=True)
+        job=select_budget_job(budget,analysis="v3")
+        if any(job[key]!=getattr(args,key) for key in ("replicates","tips","areas","sites","clock_rate","seed")):
+            raise ValueError("V3 simulation dimensions differ from the locked budget")
+    elif getattr(args,"budget_json",None) is not None:
+        raise ValueError("a formal budget cannot relabel a pilot")
     tasks=[TaskIdentity("v3_simulation","DEC+J",str(i),role=role) for i in range(1,args.replicates+1) for role in ("tree","sequence","geography")]
     seeds=derive_task_seeds(args.seed,tasks)
     rows=[]
@@ -107,18 +117,19 @@ def prepare(args):
         truth=[dict(node=node+1,taxa=sorted(clade),state=int(batch.node_states[0,node]),
                     range=[int(x) for x in model.states[int(batch.node_states[0,node])]]) for node,clade in enumerate(node_clades(tree))]
         write_json(folder/"true_states.json",truth)
-        manifest=dict(dataset=i,sequence_model="JC69",sites=args.sites,clock_rate=args.clock_rate,
+        manifest=dict(dataset=i,sequence_model="JC69",sites=args.sites,clock_rate=args.clock_rate,locked_budget=budget_record,
                       branch_length_unit="simulation_time",tree_generation="Kingman coalescent conditioned on n tips; rescaled root age 10",
                       seeds={role:f"{seed(role):016x}" for role in ("tree","sequence","geography")},
                       model=model_manifest(model),generating_params=params,
                       files={name:sha(folder/name) for name in ("true_tree.newick","alignment.fasta","alignment.nex","geography.data","true_states.json")})
         result=dict(status="simulated_waiting_for_external_bayesian_inference",posterior_inference_completed=False,
                     task_fingerprint=task_fingerprint(manifest),manifest=canonical_manifest(manifest),
-                    dataset=i,clock_rate=args.clock_rate,files=manifest["files"],tips=args.tips,areas=args.areas)
+                    dataset=i,clock_rate=args.clock_rate,files=manifest["files"],tips=args.tips,areas=args.areas,
+                    mode=getattr(args,"mode","pilot"),locked_budget=budget_record)
         write_json(folder/"simulation.json",result);rows.append(dict(dataset=i,path=str(folder),status=result["status"]))
     write_json(out/"study_plan.json",dict(protocol="V3-sequence-posterior-v1",formal_dimensions=dict(replicates=100,tips=50,areas=4,posterior_trees=200),
         requested_dimensions=dict(replicates=args.replicates,tips=args.tips,areas=args.areas,sites=args.sites),
-        full_v3_completed=False,datasets=rows,
+        full_v3_completed=False,mode=getattr(args,"mode","pilot"),locked_budget=budget_record,datasets=rows,
         evaluation_rule="Score only internal clades present in both the true tree and MCC; report all excluded true/MCC clades. Bin paired scores by external clade support. No perturbed-tree substitute is permitted."))
     print(json.dumps(dict(status="prepared_external_inference_pending",datasets=len(rows),output=str(out))))
 
@@ -236,16 +247,19 @@ def evaluate(args):
             excluded.append(sorted(clade));continue
         true_state=lookup[clade]["state"];target=np.zeros(len(single.model.states));target[true_state]=1
         support=float(np.clip(ensemble.clade_support_all_trees[node],0.,1.));row=dict(node=node+1,taxa=sorted(clade),clade_support=support,
-            support_bin="<0.7" if support<.7 else "0.7-0.95" if support<=.95 else ">0.95")
+            support_bin="<0.7" if support<.7 else "0.7-0.95" if support<=.95 else ">0.95",truth_state=int(true_state),
+            complete_trees=int(ensemble.clade_complete_trees_count[node]),
+            multitree_failure_bounds=[bound[node].tolist() for bound in ensemble.prob_failure_bounds_top])
         for name,probability in (("mcc",single.evaluation.ancestral_probs_branch_top[node]),("multitree",ensemble.complete_case_probs_top[node])):
             if not np.isfinite(probability).all():raise RuntimeError("undefined complete-case probability in paired score")
             p=float(probability[true_state]);row[name]=dict(brier=float(np.sum((probability-target)**2)),
-                log_score=float(-np.log(p)) if p>0 else None,zero_probability=(p==0))
+                log_score=float(-np.log(p)) if p>0 else None,zero_probability=(p==0),probabilities=probability.tolist())
         paired.append(row)
     write_json(folder/"v3_scores.json",dict(status="evaluated_actual_external_posterior",posterior_import_sha256=sha(folder/"posterior_import.json"),
         scope='One dataset; formal V3 completion requires every preregistered dataset and aggregate calibration.',
         dataset_tips=mcc.tip_count,areas=len(geography.areas),posterior_trees=imported['n_trees'],
         weighting_criterion='AIC with one candidate model; no model selection or AICc correction',
+        n_trees_planned=ensemble.n_trees_planned,n_trees_completed=ensemble.n_trees_completed,n_trees_incomplete=ensemble.n_trees_incomplete,
         paired_clades=paired,excluded_mcc_clades_not_in_truth=excluded,
         true_internal_clades_not_in_mcc=[sorted(c) for c in lookup if c not in set(node_clades(mcc))],
         scoring_boundary="Strict shared true/MCC internal clades only; exclusions are reported rather than assigning a false ancestral ground truth."))
@@ -257,6 +271,7 @@ def main():
     p=sub.add_parser("prepare");p.add_argument("--output-dir",required=True);p.add_argument("--replicates",type=int,default=100)
     p.add_argument("--tips",type=int,default=50);p.add_argument("--areas",type=int,default=4);p.add_argument("--sites",type=int,default=2000)
     p.add_argument("--clock-rate",type=float,default=.01);p.add_argument("--seed",type=int,default=20261115)
+    p.add_argument("--mode",choices=("pilot","formal"),default="pilot");p.add_argument("--budget-json",type=Path)
     p=sub.add_parser("run");p.add_argument("--dataset",required=True);p.add_argument("--engine-config",required=True);p.add_argument("--threads",type=int,default=1);p.add_argument("--seed",type=int,default=20261115)
     p=sub.add_parser("collect");p.add_argument("--dataset",required=True);p.add_argument("--burnin-fraction",type=float,default=.25);p.add_argument("--n-trees",type=int,default=200)
     p=sub.add_parser("evaluate");p.add_argument("--dataset",required=True);p.add_argument("--threads",type=int,default=1);p.add_argument("--resume",action="store_true")

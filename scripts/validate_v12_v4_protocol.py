@@ -127,11 +127,31 @@ def main():
     parser.add_argument("--sections",default=",".join(FORMAL))
     parser.add_argument("--seed",type=int,default=20261115)
     parser.add_argument("--resume",action="store_true")
+    parser.add_argument("--budget-json",type=Path)
     args=parser.parse_args();destination=Path(args.output_dir);destination.mkdir(parents=True,exist_ok=True)
     sections=args.sections.split(",")
     if len(set(sections))!=len(sections) or set(sections)-FORMAL.keys():
         parser.error("sections must be distinct known protocol sections")
     settings=json.loads(json.dumps(FORMAL))
+    budget_record=None
+    if args.mode=="formal":
+        if args.budget_json is None:parser.error("formal execution requires a locked --budget-json")
+        from scripts.v12_formal_protocol import load_locked_budget,select_budget_job
+        budget,budget_record=load_locked_budget(args.budget_json,source_script=__file__,execute=True)
+        job=select_budget_job(budget,analysis="v4")
+        if job["seed"]!=args.seed:raise ValueError("V4 seed differs from the locked budget")
+        requested=job["settings"]
+        if set(requested)!=set(FORMAL):raise ValueError("V4 budget must retain all protocol sections")
+        for section,original in FORMAL.items():
+            if set(requested[section])!=set(original):raise ValueError("V4 section fields differ from the protocol")
+            for key,value in original.items():
+                actual=requested[section][key]
+                if key=="replicates":
+                    if type(actual) is not int or actual<2:raise ValueError("V4 requires at least two planned replicates")
+                elif actual!=value:raise ValueError("V4 budget may reduce repetitions, not alter the statistical target or map protocol")
+        settings=requested
+    elif args.budget_json is not None:
+        parser.error("formal budgets cannot relabel plan/smoke executions")
     if args.mode=="smoke":
         for value in settings.values():value["replicates"]=4
         settings["fixed"]["maps"]=50
@@ -141,7 +161,8 @@ def main():
     moments=[exact_moments(f.model,f.params) for f in fit_list]
     source_files=[Path(__file__),ROOT/"rustbears/uncertainty/diagnostics.py",ROOT/"rustbears/uncertainty/rng.py",ROOT/"scripts/validate_v12_gate1.py"]
     hashes={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
-    manifest=dict(protocol="V4-full-v1",mode=args.mode,seed=args.seed,formal_settings=FORMAL,
+    manifest=dict(protocol="V4-full-v1",mode=args.mode,seed=args.seed,formal_settings=FORMAL,full_proposal_settings=FORMAL,
+                  prospectively_amended=bool(args.mode=="formal" and settings!=FORMAL),locked_budget=budget_record,
                   execution_settings=settings,sections=sections,source_sha256=hashes,
                   models=[model_manifest(f) for f in fit_list],symmetric_model=model_manifest(sym),exact_moments=moments,
                   early_stop_definition="stop_reason=target_precision_met while any predeclared true-active event/route (exact mean>=min_mean_count) has sqrt(exact_variance/Mstop)/exact_mean > target_rmcse; budget-limit stops are reported separately.",
