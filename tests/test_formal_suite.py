@@ -63,7 +63,7 @@ class FormalSuiteTests(unittest.TestCase):
                     suite.check_result(dict(analysis=analysis,result=str(result),output=str(directory),settings=settings,
                         argv=['unit-command','--budget-json',str(budget_path)]),digest)
 
-    def make_driver(self,n=1,seconds=.1):
+    def make_driver(self,n=1,seconds=.1,*,jobs=None,cpu_budget=2,workers=1,large_workers=None,cpu_count_override=None):
         script=self.path/'dummy_worker.py'
         script.write_text('''import fcntl,json,os,sys,time
 from pathlib import Path
@@ -71,9 +71,11 @@ base=Path(sys.argv[1]); state=base/'dummy_state.json'
 def change(delta):
  with (base/'dummy_state.lock').open('a+') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX)
-  v=json.loads(state.read_text()) if state.exists() else dict(active=0,peak=0,starts=0,pids=[],thread_env=[])
+  v=json.loads(state.read_text()) if state.exists() else dict(active=0,peak=0,starts=0,pids=[],thread_env=[],active_reserved=0,peak_reserved=0,allocations=[])
   v['active']+=delta;v['peak']=max(v['peak'],v['active'])
+  v['active_reserved']+=delta*int(sys.argv[3]);v['peak_reserved']=max(v['peak_reserved'],v['active_reserved'])
   if delta>0:
+   v['allocations'].append(int(sys.argv[3]))
    v['starts']+=1;v['pids'].append(os.getpid());v['thread_env'].append({k:os.environ.get(k) for k in ('OPENBLAS_NUM_THREADS','OMP_NUM_THREADS','MKL_NUM_THREADS')})
   state.write_text(json.dumps(v))
 change(1)
@@ -85,9 +87,11 @@ change(-1)
 from pathlib import Path
 sys.path.insert(0,{str(ROOT/'scripts')!r})
 import run_v12_formal_suite as suite
+if {cpu_count_override!r} is not None:
+ suite.os.cpu_count=lambda: {cpu_count_override!r}
 def dummy(job,index,output,budget_path,revbayes,d2,workers):
  name=f'{{index:02d}}_unit';directory=output/name
- return dict(id=name,analysis='v1',settings=job,argv=[sys.executable,{str(script)!r},{str(self.path)!r},{str(seconds)!r}],output=str(directory),result=str(directory/'unused.json'),reserved_cpus=workers,cwd={str(ROOT)!r},environment=suite.THREAD_ENV)
+ return dict(id=name,analysis=job['analysis'],settings=job,argv=[sys.executable,{str(script)!r},{str(self.path)!r},{str(seconds)!r},str(workers)],output=str(directory),result=str(directory/'unused.json'),reserved_cpus=workers,cwd={str(ROOT)!r},environment=suite.THREAD_ENV)
 suite.command_for=dummy
 suite.check_result=lambda job,digest: dict(path=job['result'],sha256='unit-test-only',meaning='dummy process completed')
 suite.main()
@@ -96,11 +100,12 @@ suite.main()
         budget=dict(schema='rustbears.formal_budget.v1',status='locked',locked_utc='2020-01-01T00:00:00+00:00',
             gate_evidence=dict(path=str(gate),sha256=suite.sha(gate)),
             source_sha256={name:suite.sha(ROOT/name) for name in suite.VALIDATOR_SOURCES},
-            jobs=[dict(analysis='v1',unit_test=i) for i in range(n)])
+            jobs=jobs if jobs is not None else [dict(analysis='v1',unit_test=i) for i in range(n)])
         budget_path=self.path/'unit_budget.json';budget_path.write_text(json.dumps(budget))
         output=self.path/'suite'
         self.argv=[sys.executable,str(driver),'--budget-json',str(budget_path),'--output',str(output),
-                   '--revbayes',sys.executable,'--d2-input-dir',str(self.path),'--cpu-budget','2','--workers-per-job','1']
+                   '--revbayes',sys.executable,'--d2-input-dir',str(self.path),'--cpu-budget',str(cpu_budget),'--workers-per-job',str(workers)]
+        if large_workers is not None:self.argv+=['--large-v1-workers',str(large_workers)]
         self.output=output
         return output
 
@@ -126,6 +131,76 @@ suite.main()
         self.assertTrue(all(set(row.values())=={'1'} for row in state['thread_env']))
         ledger=json.loads((self.output/'suite_ledger.json').read_text())
         self.assertEqual(len(ledger['outcomes']),4)
+
+    def test_fixed_priority_and_large_allocation_leave_scientific_settings_unchanged(self):
+        jobs=[dict(analysis='v1',n_tips=40,areas=4,scenario='interior',seed=1),
+              dict(analysis='v2b',scenario='null_e0',seed=2),
+              dict(analysis='v1',n_tips=150,areas=5,scenario='j_zero',seed=3),
+              dict(analysis='d1',seed=4),dict(analysis='v3',seed=5),dict(analysis='d2',seed=6),
+              dict(analysis='v4',seed=7),dict(analysis='v1',n_tips=150,areas=5,scenario='interior',seed=8)]
+        self.make_driver(jobs=jobs,cpu_budget=40,workers=2,large_workers=8,cpu_count_override=64)
+        result=self.run_driver();self.assertEqual(result.returncode,0,result.stderr)
+        plan=json.loads((self.output/'suite_plan.json').read_text())
+        self.assertEqual([r['settings']['seed'] for r in plan['jobs']],[4,6,5,7,3,8,2,1])
+        self.assertEqual({r['settings']['seed']:r['settings'] for r in plan['jobs']},{r['seed']:r for r in jobs})
+        for job in plan['jobs']:
+            expected=8 if suite.is_large_v1(job['settings']) else 2
+            self.assertEqual(job['reserved_cpus'],expected)
+            self.assertEqual(int(job['argv'][-1]),expected)
+        # Check the real workflow command, not only the dummy argument builder.
+        task=dict(analysis='v1',n_tips=150,areas=5,scenario='interior',seed=20261115)
+        command=suite.command_for(task,1,self.path,self.path/'budget.json',Path(sys.executable),self.path,
+                                  suite.allocated_workers(task,2,8))
+        self.assertEqual(command['argv'][command['argv'].index('--workers')+1],'8')
+        self.assertEqual(command['reserved_cpus'],8)
+
+    def test_mixed_eight_and_two_cpu_jobs_respect_reserved_budget(self):
+        # Only short sleeping processes run. The mocked inventory permits this
+        # accounting test on two-core CI hosts without consuming 40 CPU cores.
+        jobs=[dict(analysis=a,unit_test=a) for a in ('d1','d2','v3','v4')]
+        jobs += [dict(analysis='v1',n_tips=150,areas=5,unit_test=i) for i in range(4)]
+        jobs += [dict(analysis='v2c',unit_test=i) for i in range(2)]
+        self.make_driver(jobs=jobs,seconds=.3,cpu_budget=40,workers=2,large_workers=8,cpu_count_override=64)
+        result=self.run_driver('--execute');self.assertEqual(result.returncode,0,result.stderr)
+        state=json.loads((self.path/'dummy_state.json').read_text())
+        self.assertEqual(state['starts'],10);self.assertEqual(state['allocations'].count(8),4)
+        self.assertEqual(state['allocations'].count(2),6)
+        self.assertLessEqual(state['peak_reserved'],40);self.assertEqual(state['active_reserved'],0)
+        ledger=json.loads((self.output/'suite_ledger.json').read_text())
+        self.assertLessEqual(ledger['cpu_reservations']['peak_reserved_cpus_this_launch'],40)
+        self.assertEqual(ledger['cpu_reservations']['active_reserved_cpus'],0)
+        self.assertTrue(all(r['total_reserved_cpus_at_admission']<=40 for r in ledger['outcomes']))
+
+    def test_allocation_cannot_change_on_resume_and_default_matches_regular(self):
+        jobs=[dict(analysis='v1',n_tips=150,areas=5,unit_test=1)]
+        self.make_driver(jobs=jobs,cpu_budget=8,workers=2,cpu_count_override=64)
+        result=self.run_driver();self.assertEqual(result.returncode,0,result.stderr)
+        path=self.output/'suite_plan.json';before=path.read_bytes()
+        self.assertEqual(json.loads(before)['large_v1_workers'],2)
+        same=self.run_driver('--large-v1-workers','2');self.assertEqual(same.returncode,0,same.stderr)
+        changed=self.run_driver('--large-v1-workers','8','--resume')
+        self.assertNotEqual(changed.returncode,0);self.assertIn('different immutable plan',changed.stderr)
+        self.assertEqual(path.read_bytes(),before)
+
+    def test_signal_releases_waiting_weighted_jobs_without_starting_them(self):
+        jobs=[dict(analysis='v1',n_tips=150,areas=5,unit_test=1),dict(analysis='v1',n_tips=40,areas=4,unit_test=2)]
+        self.make_driver(jobs=jobs,seconds=5,cpu_budget=8,workers=2,large_workers=8,cpu_count_override=64)
+        process=subprocess.Popen([*self.argv,'--execute'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                 start_new_session=True,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1'))
+        try:
+            deadline=time.monotonic()+5
+            while not (self.path/'dummy_state.json').exists() and time.monotonic()<deadline:time.sleep(.02)
+            self.assertTrue((self.path/'dummy_state.json').exists())
+            os.kill(process.pid,signal.SIGTERM);process.wait(timeout=4)
+            state=json.loads((self.path/'dummy_state.json').read_text());self.assertEqual(state['starts'],1)
+            ledger=json.loads((self.output/'suite_ledger.json').read_text())
+            self.assertEqual(ledger['status'],'interrupted')
+            self.assertEqual({r['id']:r['status'] for r in ledger['outcomes']},{'01_unit':'interrupted','02_unit':'not_started'})
+            self.assertEqual(ledger['cpu_reservations']['active_reserved_cpus'],0)
+            self.assertEqual(ledger['cpu_reservations']['waiting_jobs'],[])
+            self.assertFalse((self.output/'02_unit').exists())
+        finally:
+            if process.poll() is None:process.kill();process.wait(timeout=3)
 
     def seed_ledger(self,rows):
         result=self.run_driver();self.assertEqual(result.returncode,0,result.stderr)

@@ -136,5 +136,17 @@ class CaseEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'physical parameter domain'):self.check()
                 path.write_bytes(original)
 
+    def test_declared_excess_failure_policy_matches_checkpoint(self):
+        self.manifest['excess_tree_failure_policy']='conservative_bounds'
+        for contract in CONTRACTS:
+            path=self.path/contract/'multitree.jsonl';lines=[json.loads(s) for s in path.read_text().splitlines()]
+            manifest=decode(lines[0]['manifest']);manifest['on_excess_failure']='conservative_bounds'
+            self.store(path,manifest,[r['record'] for r in lines[1:]])
+        self.assertEqual(self.check()['status'],'incomplete_profiles')
+        path=self.path/'tip_survival/multitree.jsonl';lines=[json.loads(s) for s in path.read_text().splitlines()]
+        manifest=decode(lines[0]['manifest']);manifest['on_excess_failure']='raise'
+        self.store(path,manifest,[r['record'] for r in lines[1:]])
+        with self.assertRaisesRegex(ValueError,'excess-failure policy'):self.check()
+
 
 if __name__=='__main__':unittest.main()

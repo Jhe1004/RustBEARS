@@ -152,6 +152,9 @@ def verify_case_content(folder,manifest,report):
             if (header['bsm_maps_per_tree']!=manifest['bsm_maps_per_tree'] or header['seed']!=manifest['seed']
                 or len(header['trees'])!=manifest['max_trees'] or header['max_trees']!=manifest['max_trees'] or header['match_mode']!='monophyletic'):
                 raise ValueError('multitree checkpoint configuration differs from case')
+            if ('excess_tree_failure_policy' in manifest
+                and header.get('on_excess_failure')!=manifest['excess_tree_failure_policy']):
+                raise ValueError('multitree excess-failure policy differs from case manifest')
             if len(header['models'])!=6:raise ValueError('multitree checkpoint lacks six model definitions')
             for model,name in zip(header['models'],MODELS):model_definition(model,name,contract)
             complete=[]

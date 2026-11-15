@@ -40,6 +40,60 @@ def write(path,value):
 def now():return datetime.now(timezone.utc).isoformat()
 
 
+def is_large_v1(job):
+    return job['analysis']=='v1' and job.get('n_tips')==150 and job.get('areas')==5
+
+
+def allocated_workers(job,regular,large):
+    return large if is_large_v1(job) else regular
+
+
+def launch_priority(job):
+    analysis=job['analysis']
+    ranks={'d1':0,'d2':1,'v3':2,'v4':3,'v2c':5,'v2b':6,'v1':7}
+    return (4 if is_large_v1(job['settings']) else ranks[analysis],job['id'])
+
+
+class CPUReservations:
+    """FIFO admission using the immutable per-job CPU requests.
+
+    A large waiting task can leave capacity idle until its full allocation is
+    available. Later small tasks cannot postpone that preregistered priority.
+    These are reserved worker counts, not CPU affinity or measured utilization.
+    """
+    def __init__(self,capacity,jobs):
+        self.capacity=capacity
+        self.requests={job['id']:job['reserved_cpus'] for job in jobs}
+        if len(self.requests)!=len(jobs) or any(type(n) is not int or not 1<=n<=capacity for n in self.requests.values()):
+            raise ValueError('invalid per-job CPU reservation')
+        self.waiting=[job['id'] for job in jobs];self.active={};self.used=0;self.peak=0
+        self.condition=threading.Condition()
+
+    def acquire(self,job_id,stop):
+        with self.condition:
+            if job_id not in self.waiting:raise ValueError('job is not awaiting CPU admission')
+            amount=self.requests[job_id]
+            while True:
+                if stop.is_set():
+                    self.waiting.remove(job_id);self.condition.notify_all();return None
+                if self.waiting[0]==job_id and self.used+amount<=self.capacity:
+                    self.waiting.pop(0);self.active[job_id]=amount;self.used+=amount
+                    self.peak=max(self.peak,self.used);self.condition.notify_all();return self.used
+                # Signals set the shared Event; bounded waits also release jobs
+                # when no running process is available to notify this condition.
+                self.condition.wait(timeout=.1)
+
+    def release(self,job_id):
+        with self.condition:
+            self.used-=self.active.pop(job_id);self.condition.notify_all()
+
+    def snapshot(self):
+        with self.condition:
+            return dict(capacity=self.capacity,active_reserved_cpus=self.used,
+                peak_reserved_cpus_this_launch=self.peak,active_allocations=dict(self.active),
+                waiting_jobs=list(self.waiting))
+
+
 def command_for(job,index,output,budget_path,revbayes,d2,workers):
     analysis=job['analysis'];name=f'{index:02d}_{analysis}'
     if analysis in ('v1','v2b','v2c'):
@@ -109,10 +163,14 @@ def main():
     p.add_argument('--budget-json',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--revbayes',type=Path,required=True);p.add_argument('--d2-input-dir',type=Path,required=True)
     p.add_argument('--cpu-budget',type=int,default=32);p.add_argument('--workers-per-job',type=int,default=2)
+    p.add_argument('--large-v1-workers',type=int,default=None,
+                   help='Fixed workers for V1 with 150 tips and 5 areas; defaults to --workers-per-job')
     p.add_argument('--execute',action='store_true');p.add_argument('--resume',action='store_true')
     args=p.parse_args()
-    if not 1<=args.workers_per_job<=args.cpu_budget or args.cpu_budget>(os.cpu_count() or 1):
-        p.error('require 1 <= workers-per-job <= cpu-budget <= available logical CPUs')
+    large_workers=args.workers_per_job if args.large_v1_workers is None else args.large_v1_workers
+    if (not 1<=args.workers_per_job<=args.cpu_budget or not 1<=large_workers<=args.cpu_budget
+        or args.cpu_budget>(os.cpu_count() or 1)):
+        p.error('require 1 <= each worker allocation <= cpu-budget <= available logical CPUs')
     if args.execute and os.getpriority(os.PRIO_PROCESS,0)!=0:
         raise ValueError('formal suite must be launched at the authorized normal process priority (nice=0)')
     budget_path=args.budget_json.resolve();budget=json.loads(budget_path.read_text())
@@ -124,15 +182,19 @@ def main():
     lock=(output/'suite.lock').open('a+')
     try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:raise RuntimeError('another suite launcher owns this output')
-    jobs=[command_for(job,index,output,budget_path,args.revbayes.resolve(),args.d2_input_dir.resolve(),args.workers_per_job)
+    jobs=[command_for(job,index,output,budget_path,args.revbayes.resolve(),args.d2_input_dir.resolve(),
+                      allocated_workers(job,args.workers_per_job,large_workers))
           for index,job in enumerate(budget['jobs'],1)]
-    # This launch order is independent of realized scientific outcomes. Small
-    # integration cases and tree/mapping studies start before the largest grids.
-    rank={name:i for i,name in enumerate(['d1','d2','v4','v3','v2c','v2b','v1'])}
-    jobs.sort(key=lambda j:(rank[j['analysis']],j['id']))
+    # Pilot cost evidence fixes this priority before the formal run. Scheduling
+    # changes no budget settings, random seed, or scientific task identity.
+    jobs.sort(key=launch_priority)
     if len({json.dumps(j['settings'],sort_keys=True) for j in jobs})!=len(jobs):raise ValueError('duplicate budget job')
     plan=dict(schema='rustbears.formal_suite.v1',budget_sha256=sha(budget_path),budget_status=budget.get('status'),
-        cpu_budget=args.cpu_budget,workers_per_job=args.workers_per_job,max_concurrent_jobs=args.cpu_budget//args.workers_per_job,
+        cpu_budget=args.cpu_budget,workers_per_job=args.workers_per_job,large_v1_workers=large_workers,
+        max_concurrent_jobs=min(len(jobs),args.cpu_budget//min(j['reserved_cpus'] for j in jobs)),
+        executor_threads=min(len(jobs),args.cpu_budget),admission_policy='fixed_priority_fifo_weighted_cpu_reservation',
+        launch_order=['d1','d2','v3','v4','v1_150tips_5areas','v2c','v2b','remaining_v1'],
+        worker_allocation_rule='150-tip/5-area V1 receives large_v1_workers; every other job receives workers_per_job; immutable across resume',
         jobs=jobs,script_sha256=sha(__file__),normal_priority=True,statistical_failure_policy='retain_without_outcome_driven_rerun')
     planpath=output/'suite_plan.json'
     if planpath.exists() and json.loads(planpath.read_text())!=plan:raise ValueError('existing suite has a different immutable plan; use a new output directory')
@@ -153,12 +215,14 @@ def main():
         raise ValueError('unowned pre-existing job output; cannot silently adopt another run')
     if any(Path(job['output']).is_symlink() for job in jobs):raise ValueError('job output must not be a symlink to another run')
     stop=threading.Event();running={};guard=threading.Lock();rows=dict(existing)
+    resources=CPUReservations(args.cpu_budget,jobs)
     def interrupt(_signal,_frame):stop.set()
     signal.signal(signal.SIGTERM,interrupt);signal.signal(signal.SIGINT,interrupt)
     def save():
         write(ledgerpath,dict(plan_sha256=sha(planpath),updated_utc=now(),pid=os.getpid(),
-            status='interrupted' if stop.is_set() else 'running',outcomes=sorted(rows.values(),key=lambda r:r['id'])))
-    def one(job):
+            status='interrupted' if stop.is_set() else 'running',cpu_reservations=resources.snapshot(),
+            outcomes=sorted(rows.values(),key=lambda r:r['id'])))
+    def execute_one(job,admitted_total):
         previous=existing.get(job['id'])
         if previous and previous['status'] in ('processed','failed_retained'):
             if previous['status']=='processed' and check_result(job,plan['budget_sha256'])!=previous['result']:
@@ -167,7 +231,8 @@ def main():
         if stop.is_set():return dict(id=job['id'],status='not_started')
         cache=Path(job['output'])/'runtime_cache'
         env=dict(os.environ,**THREAD_ENV,TMPDIR=str(cache),MPLCONFIGDIR=str(cache),XDG_CACHE_HOME=str(cache))
-        row=dict(id=job['id'],status='running',started_utc=now(),reserved_cpus=job['reserved_cpus'])
+        row=dict(id=job['id'],status='running',started_utc=now(),reserved_cpus=job['reserved_cpus'],
+                 total_reserved_cpus_at_admission=admitted_total)
         with guard:rows[job['id']]=row.copy();save()
         cache.mkdir(parents=True,exist_ok=True)
         logdir=output/'logs';logdir.mkdir(exist_ok=True)
@@ -197,8 +262,14 @@ def main():
             try:row.update(result=check_result(job,plan['budget_sha256']),status='processed')
             except (ValueError,KeyError,OSError) as error:row['error']=f'{type(error).__name__}: {error}'
         return row
+    def one(job):
+        total=resources.acquire(job['id'],stop)
+        if total is None:
+            return existing.get(job['id'],dict(id=job['id'],status='not_started',reserved_cpus=job['reserved_cpus']))
+        try:return execute_one(job,total)
+        finally:resources.release(job['id'])
     with guard:save()
-    with ThreadPoolExecutor(max_workers=plan['max_concurrent_jobs']) as pool:
+    with ThreadPoolExecutor(max_workers=plan['executor_threads']) as pool:
         pending={pool.submit(one,job):job for job in jobs}
         for future in as_completed(pending):
             job=pending[future]
@@ -209,6 +280,7 @@ def main():
     stable=sha(budget_path)==plan['budget_sha256'] and all(sha(ROOT/name)==digest for name,digest in budget['source_sha256'].items())
     all_processed=set(rows)=={j['id'] for j in jobs} and all(r['status']=='processed' for r in rows.values())
     final=dict(plan_sha256=sha(planpath),updated_utc=now(),source_unchanged=stable,
+        cpu_reservations=resources.snapshot(),
         status='interrupted' if stop.is_set() else 'all_workflows_processed' if stable and all_processed else 'completed_with_retained_failures',
         outcomes=sorted(rows.values(),key=lambda r:r['id']))
     write(ledgerpath,final)
