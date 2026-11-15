@@ -1,4 +1,7 @@
 /* GPL >= 2. R allocation and error handling stay on this side of the ABI. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #ifndef USE_FC_LEN_T
 #define USE_FC_LEN_T
 #endif
