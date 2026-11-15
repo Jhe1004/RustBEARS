@@ -33,12 +33,23 @@ class ProfileTests(unittest.TestCase):
         # This real 19-tip fixture formerly joined an e≈0 cached grid ordinate
         # to e=5 root-search ordinates after rebase, creating a false jump and
         # an endpoint residual of 0.0557264. The parameter box did not change.
-        from rustbears.uncertainty.rng import TaskIdentity, derive_seed
         from rustbears.uncertainty.profile import _profile_point
         root=Path(__file__).resolve().parent/"fixtures/psychotria"
-        seed=derive_seed(20261115,TaskIdentity("empirical_fit","6","D1_Psychotria",role="tip_survival"))
-        fit=b.BioGeoBEARS(root/"Psychotria_5.2_ultrametric.newick",root/"Psychotria_geog.data",
-            "BAYAREALIKE+J",likelihood_conditioning="tip_survival",max_range_size=4).fit(seed=seed)
+        model=b.BioGeoBEARS(root/"Psychotria_5.2_ultrametric.newick",root/"Psychotria_geog.data",
+            "BAYAREALIKE+J",likelihood_conditioning="tip_survival",max_range_size=4)
+        # Replay the recorded inferior D1 basin. An unconstrained initial fit
+        # can already find the better basin on some platforms, in which case
+        # asserting a later rebase would depend on the optimizer's trajectory.
+        # The score and ancestral probabilities are recomputed by the native
+        # likelihood; the profile and endpoint check below remain real fits.
+        params=model.model.resolve(dict(d=1e-12,e=1e-12,j=.10811626692419736))
+        evaluation=model.evaluate(params)
+        self.assertAlmostEqual(evaluation.lnL,-24.260680130280434,places=8)
+        k=len(model.model.free);n=model.tree.tip_count
+        aic=2*k-2*evaluation.lnL
+        fit=b.FitResult(lnL=evaluation.lnL,params=params,n_params=k,aic=aic,
+            aicc=aic+2*k*(k+1)/(n-k-1),n_evals=1,converged=True,
+            evaluation=evaluation,model=model,message="Replay recorded D1 local optimum")
         result=b.profile_ci(fit,params=["d"],n_grid=8,num_threads=2)
         self.assertTrue(result.rebased_mle)
         self.assertGreater(result.obj_mle,fit.lnL+.5)
