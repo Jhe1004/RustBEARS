@@ -18,6 +18,13 @@ Read the [implementation contract](docs/v1.2-implementation-contract.md),
 are separate from the planned large calibration study: neither a working example
 nor a CI configuration establishes a completed publication validation.
 
+The current verification scope is **Linux and macOS**. Windows is omitted at the
+user's request; its build code remains available but is not certified by this
+verification. GitHub-hosted runs are currently blocked by account billing or
+spending limits. Complete checks on the local macOS host and Tongfang Linux are
+recorded separately as local verification, without presenting them as successful
+GitHub CI. See [build and validation notes](docs/CI_BUILD_NOTES.md).
+
 [![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](LICENSE)
 [![Rust Core](https://img.shields.io/badge/Rust-1.82%2B-orange.svg)](rust/Cargo.toml)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](pyproject.toml)
@@ -34,7 +41,7 @@ nor a CI configuration establishes a completed publication validation.
 - **Machine-Precision Equivalence (`10^-14`)**: Supports both **`LegacyF32` (`legacy_f32`)**—which faithfully emulates the historical 32-bit single-precision (`f32`) and decimal step-rounding boundary effects across matrix construction, cladogenetic weights, MaxEnt scaling, and `EXPOKIT` Arnoldi stepping ($9.95 \times 10^{-14}$ median $|\Delta\text{LnL}|$ across 1,339 empirical configurations from 77 published studies)—and **`StrictF64` (`strict_f64`)** pure 64-bit IEEE-754 reference arithmetic.
 - **Multi-Basin Cold-Start Optimization**: Tree-scaled interior probes, quadratic infeasible-domain guidance, and scaled absolute-step boundary refinement eliminate flat-penalty stalls on deep-time phylogenies (100% blind non-inferiority across 1,331 empirical fits; rescues 37 suboptimal historical local stalls and solves high-dimensional models up to 848 discrete states).
 - **Deterministic Multi-Threaded Stochastic Mapping (BSM)**: Accelerates biogeographical stochastic mapping by a median of **171-fold** single-threaded (up to **2,800-fold**) with an additional **8.59-fold** strong scaling across 8 CPU cores, while guaranteeing **bit-identical per-map event histories** on a given platform across `1, 2, 4, 8, ...` threads via independent four-lane keyed `Xoshiro256PlusPlus` streams derived from `(seed, map_index, stratum, step)`.
-- **Zero-Dependency Native Build**: Bundled offline Cargo vendor directory (`rust/vendor`) compiles cleanly with a single modern Rust toolchain across Linux, macOS (`x86_64` and `arm64` Apple Silicon), and Windows.
+- **Offline Native Build**: The bundled Cargo vendor directory (`rust/vendor`) builds with a modern Rust toolchain. Current verification covers Linux and macOS; retained Windows build support is outside this verification.
 
 ---
 

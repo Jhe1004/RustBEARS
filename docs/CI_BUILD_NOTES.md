@@ -1,9 +1,19 @@
 # Cross-platform build notes
 
-The workflow runs installed Python wheels and the complete R package check on
-Linux, macOS and Windows. The R check fails on errors or warnings. Its additional
-R scripts exercise both optimizer engines and the v1.2 probability, statistical
-and summary APIs.
+The current validation scope is Linux and macOS, as explicitly requested on
+2026-11-15. Both workflow matrices contain only these platforms. Windows build
+code is retained, but Windows is outside this verification and is not reported
+as passing. The general viewer-process regression remains mandatory.
+
+The workflow defines installed Python wheel tests and the complete R package
+check on both selected platforms. The R check fails on errors or warnings; its
+additional R scripts exercise both optimizer engines and the v1.2 probability,
+statistical and summary APIs. GitHub-hosted execution remains blocked by the
+account billing/spending-limit gate. The scope-change commit skips hosted CI;
+no payment settings or repository visibility are changed. Equivalent complete
+checks are instead recorded separately on the local macOS host and Tongfang
+Linux, with their actual runtime, source hash and results. Such records are
+local verification, not successful GitHub Actions jobs.
 
 The retained upstream R tests require the optional `rexpokit`, `cladoRcpp`, `FD`,
 `snow`, `minqa`, `gdata` and `phylobase` packages; CI installs these explicitly.
@@ -11,7 +21,7 @@ They are test dependencies, not replacements for RustBEARS's native backend.
 `MultinomialCI` 1.2 is installed from its official CRAN archive because legacy
 summary functions retain that dependency.
 
-Windows Rtools links the GNU Rust archive with `synchronization` for the Rust
+The retained Windows Rtools build code links the GNU Rust archive with `synchronization` for the Rust
 standard library's `WaitOnAddress` and `WakeByAddress*` synchronization primitives.
 The packaged vendor directories are checked out byte-for-byte so that Cargo's
 published source checksums remain valid on Windows too.
