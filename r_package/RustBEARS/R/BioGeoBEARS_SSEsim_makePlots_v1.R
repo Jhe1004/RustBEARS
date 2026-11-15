@@ -46,7 +46,7 @@ plot_simDEC_DECJ_inferences <- function(simdir=NULL, sim_params_Rdata_table="/si
 
 
 	# Get the parameters for this run
-	load(file="/simdata/BGB/dej_params.Rdata")
+	load(file=sim_params_Rdata_table)
 	nums = 1:nrow(dej_params)
 	dej_params = cbind(nums, dej_params)
 	dim(dej_params)

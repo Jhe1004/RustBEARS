@@ -2580,18 +2580,18 @@ plot_BSM_fns <- function(res1, res2=NULL, BSM_fns_res1, BSM_fns_res2=NULL, res1n
 		#states_list_0based = rcpp_areas_list_to_states_list(areas=areas, maxareas=max_range_size, include_null_range=include_null_range)
 
 		# Get colors
-		colors_list_for_states = get_colors_for_states_list_0based(areanames=areanames, states_list_0based=states_list_0based, max_range_size=max_range_size)
+		colors_list_for_states = get_colors_for_states_list_0based(areanames=areanames, states_list_0based=states_list_0based, max_range_size=max_range_size, plot_null_range=include_null_range)
 
 		# Plot the tree and states at nodes/corners
 		resmod = stochastic_map_states_into_res(res=res1, master_table_cladogenetic_events, stratified=BSM_strat_TF)
 
 		scriptdir = np(system.file("extdata/a_scripts", package="RustBEARS"))
-		plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt=analysis_titletxt, addl_params=list("j"), label.offset=0.5, plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, skiptree=FALSE, titlecex=0.6, tipcex=0.6, tr=tr, tipranges=tipranges)
+		plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt=analysis_titletxt, addl_params=list("j"), label.offset=0.5, plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, include_null_range=include_null_range, skiptree=FALSE, titlecex=0.6, tipcex=0.6, tr=tr, tipranges=tipranges)
 
 		# Paint on the branch states
 		paint_stochastic_map_branches(res=resmod, master_table_cladogenetic_events, colors_list_for_states=colors_list_for_states, lwd=5, lty=par("lty"), root.edge=TRUE, stratified=BSM_strat_TF)
 
-		plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt="", addl_params=list("j"), plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, skiptree=TRUE, tr=tr, tipranges=tipranges)
+		plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt="", addl_params=list("j"), plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, include_null_range=include_null_range, skiptree=TRUE, tr=tr, tipranges=tipranges)
 
 
 
@@ -2669,18 +2669,18 @@ plot_BSM_fns <- function(res1, res2=NULL, BSM_fns_res1, BSM_fns_res2=NULL, res1n
 			#states_list_0based = rcpp_areas_list_to_states_list(areas=areas, maxareas=max_range_size, include_null_range=include_null_range)
 
 			# Get colors
-			colors_list_for_states = get_colors_for_states_list_0based(areanames=areanames, states_list_0based=states_list_0based, max_range_size=max_range_size)
+			colors_list_for_states = get_colors_for_states_list_0based(areanames=areanames, states_list_0based=states_list_0based, max_range_size=max_range_size, plot_null_range=include_null_range)
 
 			# Plot the tree and states at nodes/corners
 			resmod = stochastic_map_states_into_res(res=res2, master_table_cladogenetic_events, stratified=BSM_strat_TF)
 
 			scriptdir = np(system.file("extdata/a_scripts", package="RustBEARS"))
-			plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt=analysis_titletxt, addl_params=list("j"), label.offset=0.5, plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, skiptree=FALSE, titlecex=0.6, tipcex=0.6, tr=tr, tipranges=tipranges)
+			plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt=analysis_titletxt, addl_params=list("j"), label.offset=0.5, plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, include_null_range=include_null_range, skiptree=FALSE, titlecex=0.6, tipcex=0.6, tr=tr, tipranges=tipranges)
 
 			# Paint on the branch states
 			paint_stochastic_map_branches(res=resmod, master_table_cladogenetic_events, colors_list_for_states=colors_list_for_states, lwd=5, lty=par("lty"), root.edge=TRUE, stratified=BSM_strat_TF)
 
-			plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt="", addl_params=list("j"), plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, skiptree=TRUE, tr=tr, tipranges=tipranges)
+			plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt="", addl_params=list("j"), plotwhat="text", cornercoords_loc=scriptdir, root.edge=TRUE, colors_list_for_states=colors_list_for_states, include_null_range=include_null_range, skiptree=TRUE, tr=tr, tipranges=tipranges)
 			} # END if (is.null(BSM_fns_res2) == FALSE)
 
 		} # END for (mapnum in 1:num_maps)
