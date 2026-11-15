@@ -49,8 +49,13 @@ def load_case(case, tree_path, budget_path):
         contract=result['contracts'][name]
         if len(contract['profiles'])!=6 or len(contract['bootstrap'])!=3 or contract['multitree']['n_planned']!=manifest['max_trees']:
             raise ValueError('case is missing planned tasks')
-        if contract['multitree']['joint_mapping']['tree_target']!='fixed_sample':
+        if contract['multitree']['n_complete'] and contract['multitree']['joint_mapping'].get('tree_target')!='fixed_sample':
             raise ValueError('D2 deposited trees must retain the fixed-sample target')
+    # The same read-only terminal verifier used by the execution suite checks
+    # every actual replicate/tree/map identity and its retained failure status.
+    # A complete-looking summary file is never sufficient for a paper figure.
+    from v12_case_evidence import verify_case
+    verify_case(case,jobs[0],budget,sha(budget_path))
     return manifest,result
 
 
