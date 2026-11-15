@@ -13,20 +13,20 @@ import numpy as np
 if __package__:
     from .v12_figure_utils import (audit_alignment, configure_plotting, copy_evidence,
                                   export_rows, save_figure, sha, write_json)
-    from .v12_workflow_costs import WORKLOADS, LABELS, inspect_suite, export_costs
+    from .v12_workflow_costs import WORKLOADS, LABELS, inspect_suite, inspect_dedicated_benchmark, export_costs
 else:
     from v12_figure_utils import (audit_alignment, configure_plotting, copy_evidence,
                                   export_rows, save_figure, sha, write_json)
-    from v12_workflow_costs import WORKLOADS, LABELS, inspect_suite, export_costs
+    from v12_workflow_costs import WORKLOADS, LABELS, inspect_suite, inspect_dedicated_benchmark, export_costs
 
 CONTRACT = dict(figure='1', backend='python', final_size_mm=[180, 225], minimum_font_pt=8,
     question='How do explicit probability conventions connect analysis and measured computational cost?',
     panels=dict(a='Methods workflow; no quantitative claim.',
         b='Two sibling axes: all matched fresh-process external/Rust wall-time and peak-RSS ratios; all planned failures retained.',
         c='Actual formal API workflow wall time; complete fresh attempts only; failures and partial resumes remain in source tables.'),
-    selection='All formal benchmark cells. All V1 three-parameter profiles, V2b B199/surrogate199, V2c six fits plus aggregation, case 5000-map and D2 200-tree/500-map workflows. P0 is supplementary only.',
+    selection='All formal external benchmark cells. Main c uses the separately locked 16/64/256-state six-workflow cost benchmark. Actual calibration/case workflow timings and P0 are supplementary only.',
     uncertainty='Raw timing attempts; repeated attempts are not independent datasets. No pooled confidence interval across tree sizes, hosts or workers.',
-    scope='Actual calibration/case state counts only. Original 64/256-state complete-workflow benchmarks remain pending a dedicated protocol. Peak RSS is the whole fresh process measured by wait4, including interpreter/runtime, not kernel allocation. No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
+    scope='Dedicated 16/64/256-state full-workflow protocol implemented; formal data and rendering pending. Calibration/case costs do not substitute for this grid. Peak RSS is the whole fresh process measured by wait4, including interpreter/runtime, not kernel allocation. No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
     legends=dict(b='one bounded panel header shared by both axes: software color; host marker; unavailable/failed status markers; tips and repeats retained by horizontal offsets and source rows', c='range-state color; reserved-CPU marker; counts show unique tasks observed/planned'),
     missingness='N=0 remains NA; failed calls and partial checkpoint resumes cannot become full-cost points. Returned calls with retained inner failures are marked.',
     raster_dpi=600,
@@ -130,12 +130,10 @@ def benchmark_counts(rows):
 def draw_benchmark_panel(fig,rows,grid,hosts):
     """Matched process cost ratios; missing values use a non-numeric status band."""
     from matplotlib.lines import Line2D
-    from matplotlib.patches import Rectangle
     import matplotlib.pyplot as plt
     # The header/footer and both equal plot rectangles belong to one panel b.
-    frame=(.025,.39,.95,.395)
-    fig.add_artist(Rectangle(frame[:2],frame[2],frame[3],transform=fig.transFigure,
-        fill=False,edgecolor='#C9CED1',linewidth=.6))
+    # The panel ownership is conceptual; journal production prohibits a visible
+    # box around the complete graph. Shared header and equal axes decode it.
     header=fig.add_axes([.075,.705,.87,.068]);header.set_axis_off()
     axes=[fig.add_axes([.115,.482,.345,.195]),fig.add_axes([.615,.482,.345,.195])]
     states,tips=grid[1],grid[0];markers=['o','s']
@@ -178,14 +176,18 @@ def main():
     p.add_argument('--output',required=True,type=Path)
     p.add_argument('--benchmark',action='append',default=[],metavar='HOST=RESULTS_JSON')
     p.add_argument('--p0',action='append',default=[],metavar='HOST=RESULTS_JSON')
-    p.add_argument('--workflow-input',type=Path,help='Locked full-suite timing inventory; never a P0 or smoke replacement')
+    group=p.add_mutually_exclusive_group()
+    group.add_argument('--workflow-input',type=Path,help='Supplementary actual calibration/case cost inventory')
+    group.add_argument('--workflow-benchmark-input',type=Path,help='Dedicated formal 16/64/256-state cost inventory for main panel c')
     p.add_argument('--render',action='store_true');p.add_argument('--workflow-only',action='store_true')
     p.add_argument('--audit-scripts',type=Path)
     args=p.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     write_json(args.output/'figure_contract.json',CONTRACT)
     write_json(args.output/'workflow_input_template.json',dict(schema='rustbears.workflow_costs.inputs.v1',formal=False,
         budget=dict(path='LOCKED_BUDGET.json',sha256='PENDING'),suite='FORMAL_SUITE_DIRECTORY'))
-    costs=inspect_suite(args.workflow_input) if args.workflow_input else None
+    write_json(args.output/'workflow_benchmark_input_template.json',dict(schema='rustbears.workflow_benchmark.inputs.v1',formal=False,
+        budget=dict(path='LOCKED_DEDICATED_COST_BUDGET.json',sha256='PENDING'),benchmark='DEDICATED_BENCHMARK_DIRECTORY'))
+    costs=inspect_dedicated_benchmark(args.workflow_benchmark_input) if args.workflow_benchmark_input else inspect_suite(args.workflow_input) if args.workflow_input else None
     if costs is not None:export_costs(costs,args.output)
     if not args.render and not args.workflow_only:return
     if args.audit_scripts is None:p.error('rendering requires --audit-scripts for the final alignment check')
@@ -202,7 +204,7 @@ def main():
     benchmarks=parse(args.benchmark);p0=parse(args.p0)
     if len(benchmarks)!=2 or len({x[0] for x in benchmarks})!=2:
         raise ValueError('provide two distinct matched benchmark hosts')
-    if costs is None:raise ValueError('Figure 1c requires a verified formal --workflow-input; P0 cannot substitute')
+    if costs is None or args.workflow_benchmark_input is None:raise ValueError('Main Figure 1c requires a formal --workflow-benchmark-input; calibration costs and P0 cannot substitute')
     if len({r['host'] for r in costs['rows']})>1:raise ValueError('panel c requires one execution host; multi-host attempts need explicit separate panels')
     rows,grid=benchmark_rows(benchmarks);fitrows=[]
     for host,path in p0:
@@ -220,7 +222,7 @@ def main():
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     archive=[Path(path) for path in costs['source_files'] if Path(path).name in ('workflow_timings.jsonl','suite_plan.json','suite_ledger.json')]
-    copy_evidence([path for _,path in benchmarks+p0]+[args.workflow_input]+archive,args.output)
+    copy_evidence([path for _,path in benchmarks+p0]+[args.workflow_benchmark_input]+archive,args.output)
     export_rows(args.output/'benchmark_source.csv',rows)
     if fitrows:export_rows(args.output/'supplementary_p0_source.csv',fitrows)
     fig_width_mm,fig_height_mm=CONTRACT['final_size_mm']
@@ -237,7 +239,8 @@ def main():
     palette=['#257C87','#A56529','#767676','#7C568D'];symbols=['o','s','^','D']
     if len(state_values)>len(palette) or len(cpu_values)>len(symbols):raise ValueError('new timing strata require a prospective legend revision')
     state_colors=dict(zip(state_values,palette));cpu_markers=dict(zip(cpu_values,symbols));labels=[]
-    for i,(category,label) in enumerate(zip(WORKLOADS,LABELS)):
+    order=costs.get('workload_order',WORKLOADS);cost_labels=costs.get('workload_labels',LABELS)
+    for i,(category,label) in enumerate(zip(order,cost_labels)):
         chosen=[r for r in costs['points'] if r['workload']==category];counts=costs['category_counts'][category]
         labels.append(f'{label}\n{counts["unique_tasks_observed"]}/{counts["planned_tasks"]} tasks')
         for row,offset in zip(chosen,np.linspace(-.15,.15,len(chosen))):
@@ -254,7 +257,7 @@ def main():
     fig.text(.025,.355,'c)',fontweight='bold',fontsize=10)
     audit_alignment(fig,args.output,'figure1',args.audit_scripts)
     save_figure(fig,args.output,'figure1');plt.close(fig)
-    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Left, time; right, peak RSS. Each point is a matched external/Rust ratio for whole fresh-process wall time or peak resident memory (RSS), respectively. Both measurements include interpreter/runtime startup, imports, construction and one fixed likelihood evaluation; neither establishes optimizer speedup or kernel-allocation efficiency. Peak RSS is measured separately for each process using wait4. All registered tips, states, hosts and repeats are retained; horizontal offsets separate software, host, tip count and repeat. Lagrange-ng is restricted to the two-area v=2 stratum. The shared header owns both axes. A missing or zero RSS yields an unavailable ratio, never a zero-memory value. Timeout, failed/unaligned and unavailable marks appear in a non-numeric strip below each axis; they do not encode a numeric ratio. Counts retain every planned comparison, and RSS-unavailable counts may overlap failures. Raw seconds, bytes, return codes and timeout flags remain in the source table. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the LRT includes 199 null and 199 surrogate replicates; model averaging sums six sequential fits and aggregation only within the same invocation/dataset. Tree mapping denotes the planned 200-tree/500-map workload; crosses mark retained inner failures. Colors identify range states and symbols reserved CPUs, not measured CPU utilization. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the registered tree sizes, scenarios and probability routes; no pooled mean, confidence interval or suite elapsed time is inferred. P0 fits appear only in supplementary evidence.\n')
+    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Left, time; right, peak RSS. Each point is a matched external/Rust ratio for whole fresh-process wall time or peak resident memory (RSS), respectively. Both measurements include interpreter/runtime startup, imports, construction and one fixed likelihood evaluation; neither establishes optimizer speedup or kernel-allocation efficiency. Peak RSS is measured separately for each process using wait4. All registered tips, states, hosts and repeats are retained; horizontal offsets separate software, host, tip count and repeat. Lagrange-ng is restricted to the two-area v=2 stratum. The shared header owns both axes. A missing or zero RSS yields an unavailable ratio, never a zero-memory value. Timeout, failed/unaligned and unavailable marks appear in a non-numeric strip below each axis; they do not encode a numeric ratio. Counts retain every planned comparison, and RSS-unavailable counts may overlap failures. Raw seconds, bytes, return codes and timeout flags remain in the source table. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the dedicated LRT includes the registered null replicates without surrogate power. Six-model costs include every initial fit and averaging within the same phase. Branch-scaled tree copies define a computational workload, not a posterior sample; map and tree budgets are displayed on the axes. Crosses mark retained inner failures. Colors identify range states and symbols reserved CPUs, not measured CPU utilization. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the locked state/worker grid and repetitions under tip-survival conditioning; no pooled mean, confidence interval or suite elapsed time is inferred. Partial or timed-out phases have no full-cost point. Actual calibration/case costs and P0 fits are supplementary evidence.\n')
     write_json(args.output/'script_binding.json',{'sha256':sha(__file__),'helper_sha256':sha(Path(__file__).with_name('v12_figure_utils.py')),'workflow_reader_sha256':sha(Path(__file__).with_name('v12_workflow_costs.py'))})
 
 

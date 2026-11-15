@@ -11,7 +11,8 @@ collision and final-size visual checks; script completion is not visual approval
 
 `scripts/plot_v12_performance.py --workflow-only --output DIR --audit-scripts QA_DIR`
 draws only the non-data methods panel. For the data figure use `--render`, two
-`--benchmark HOST=RESULTS_JSON` arguments, and `--workflow-input INVENTORY.json`.
+`--benchmark HOST=RESULTS_JSON` arguments, and
+`--workflow-benchmark-input DEDICATED_INVENTORY.json`.
 The benchmark grids must match. Formal benchmark records contain every planned cell, including
 failures; an unsupported or failed comparison cannot acquire a time ratio.
 
@@ -39,15 +40,18 @@ other failures and unavailable RSS pairs; unavailable memory can overlap a
 failure. Missingness therefore cannot disappear through successful-only ratios.
 
 Panel c shows
-actual formal uncertainty API workflow costs from the locked complete suite,
-with fresh full calls separated from partial checkpoint resumes. See
-[the workflow cost contract](V12_FORMAL_WORKFLOW_COST_FIGURE.md) for its fixed
-six workload classes, source checks and missing-task denominators. Optional
+actual formal uncertainty API workflow costs from the separately locked
+16/64/256-state benchmark, with fresh full calls separated from partial
+checkpoint resumes. See [the dedicated protocol](V12_DEDICATED_WORKFLOW_BENCHMARK.md)
+for its fixed six workload classes, source checks and missing-task denominators.
+`--workflow-input` remains a non-rendering supplementary export of actual
+calibration/case costs through [its own contract](V12_FORMAL_WORKFLOW_COST_FIGURE.md).
+Optional
 `--p0 HOST=RESULTS_JSON` inputs are supplementary only and can never supply panel c.
 
 This preparation is not a completed Figure 1. Actual calibration/case grids
-cover their registered state counts (currently 4/16/32); the original proposal's
-64/256-state complete-workflow benchmark requires a separate locked experiment.
+cover their registered state counts (currently 4/16/32); the separate executable
+64/256-state complete-workflow protocol still requires genuine formal execution.
 The layout remains 180 × 225 mm with an 8 pt minimum. Panel b now includes
 memory in the main figure, but its code and preflight checks are not a rendered
 layout approval. Real final-size text, collision and alignment QA awaits the

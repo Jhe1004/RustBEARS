@@ -161,5 +161,35 @@ class WorkflowCostTests(unittest.TestCase):
         result=subprocess.run([sys.executable,'-c','import sys; from scripts import v12_workflow_costs; assert "scripts.run_v12_formal_suite" not in sys.modules'],cwd=ROOT,capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
 
+    def test_dedicated_reader_rejects_smoke_even_with_a_valid_budget_envelope(self):
+        from scripts import benchmark_v12_workflows as bench
+        gate=self.root/'gates.json';gate.write_text('{"gate2_passed":true,"gate3_passed":true}')
+        budget=dict(schema='rustbears.formal_budget.v1',status='locked',locked_utc='2020-01-01T00:00:00Z',
+            gate_evidence=dict(path=gate.name,sha256=costs.sha(gate)),
+            jobs=[dict(analysis='workflow_benchmark',**bench.DEFAULT)],
+            source_sha256={name:costs.sha(ROOT/name) for name in ('scripts/benchmark_v12_workflows.py','scripts/v12_formal_protocol.py')})
+        budget_path=self.root/'budget.json';budget_path.write_text(json.dumps(budget))
+        folder=self.root/'smoke';folder.mkdir();(folder/'plan.json').write_text('{"mode":"smoke","formal":false}');(folder/'results.json').write_text('{"formal":false}')
+        inventory=self.root/'inventory.json';inventory.write_text(json.dumps(dict(schema='rustbears.workflow_benchmark.inputs.v1',formal=True,
+            budget=dict(path=budget_path.name,sha256=costs.sha(budget_path)),benchmark=folder.name)))
+        with self.assertRaisesRegex(ValueError,'smoke or pilot'):costs.inspect_dedicated_benchmark(inventory)
+
+    def test_all_failed_tree_maps_require_explicit_unavailable_marker(self):
+        with self.assertRaises(FileNotFoundError):costs._verify_cost_maps(self.root,'joint_',19,0)
+        (self.root/'no_complete_tree_maps.json').write_text('{"status":"no_complete_tree_maps","n_complete":0,"n_incomplete":20}')
+        costs._verify_cost_maps(self.root,'joint_',19,0)
+        (self.root/'joint_map_metadata.csv').write_text('map\n1\n')
+        with self.assertRaisesRegex(ValueError,'zero complete trees'):costs._verify_cost_maps(self.root,'joint_',19,0)
+
+    def test_plugin_cost_requires_all_B_rows_for_each_parameter(self):
+        (self.root/'intervals.csv').write_text('param\nd\ne\nj\n')
+        for name in ('d','e','j'):
+            (self.root/f'curve_{name}.csv').write_text('value,profile_obj\n0,-1\n')
+            (self.root/f'plugin_{name}.csv').write_text('rep_id,d_stat\n1,0\n2,0\n3,0\n')
+        costs.verify_dedicated_phase(self.root,self.root,'profile_plugin',dict(n_boot_plugin=3),{})
+        (self.root/'plugin_j.csv').write_text('rep_id,d_stat\n1,0\n2,0\n')
+        with self.assertRaisesRegex(ValueError,'calibration replicate'):
+            costs.verify_dedicated_phase(self.root,self.root,'profile_plugin',dict(n_boot_plugin=3),{})
+
 
 if __name__=='__main__':unittest.main()

@@ -11,11 +11,11 @@ import math
 from pathlib import Path
 
 if __package__:
-    from .plot_v12_calibration import (budget_info, decode, job_key, load_run,
+    from .plot_v12_calibration import (budget_info, checkpoint, decode, job_key, load_run,
         read_json, reject_constant, resolve, sha, verify_workflow_source)
     from .v12_case_evidence import verify_case
 else:
-    from plot_v12_calibration import (budget_info, decode, job_key, load_run,
+    from plot_v12_calibration import (budget_info, checkpoint, decode, job_key, load_run,
         read_json, reject_constant, resolve, sha, verify_workflow_source)
     from v12_case_evidence import verify_case
 
@@ -268,3 +268,177 @@ def export_costs(audit,folder):
         for point in audit['points']:
             writer.writerow({k:json.dumps(point[k]) if isinstance(point.get(k),(list,dict)) else point.get(k) for k in columns})
     (folder/'workflow_input_audit.json').write_text(json.dumps({k:v for k,v in audit.items() if k not in ('rows','points')},indent=2,ensure_ascii=False)+'\n')
+
+
+def inspect_dedicated_benchmark(inventory_path):
+    """Validate the independent 16/64/256-state cost protocol, not calibration."""
+    if __package__:
+        from . import benchmark_v12_workflows as bench
+    else:
+        import benchmark_v12_workflows as bench
+    path=Path(inventory_path).resolve();inventory=read_json(path)
+    if inventory.get('schema')!='rustbears.workflow_benchmark.inputs.v1' or inventory.get('formal') is not True:
+        raise ValueError('formal dedicated benchmark inventory required; no smoke promotion')
+    budget_path=resolve(path.parent,inventory['budget']['path'])
+    if sha(budget_path)!=inventory['budget']['sha256']:raise ValueError('dedicated budget SHA mismatch')
+    budget,_=bench.load_locked_budget(budget_path,source_script=bench.__file__,execute=True)
+    folder=resolve(path.parent,inventory['benchmark']);plan_path=folder/'plan.json';result_path=folder/'results.json'
+    plan=read_json(plan_path);result=read_json(result_path)
+    if plan.get('mode')!='formal' or plan.get('formal') is not True or result.get('formal') is not True:
+        raise ValueError('smoke or pilot benchmarks cannot supply formal workflow costs')
+    if result.get('status')!='all_planned_phases_processed' or result.get('source_unchanged') is not True or result.get('plan_sha256')!=sha(plan_path):
+        raise ValueError('dedicated benchmark is not completely processed with unchanged sources')
+    if timestamp(result['first_started_utc'])<timestamp(budget['locked_utc']):raise ValueError('benchmark execution predates its budget lock')
+    if plan.get('budget',{}).get('sha256')!=sha(budget_path) or plan['budget']['payload']!=budget:raise ValueError('dedicated benchmark budget binding mismatch')
+    selected=bench.select_budget_job(budget,analysis='workflow_benchmark');settings={k:v for k,v in selected.items() if k!='analysis'}
+    if plan['settings']!=settings or plan['cells']!=bench.cells_for(settings) or plan['phases']!=list(bench.PHASES):raise ValueError('dedicated benchmark dimensions differ from locked design')
+    predecessor,digest=bench.predecessor_budget(budget,budget_path)
+    predecessor_checked=bench.completed_statistical_suite(plan['after_suite'],predecessor,digest)
+    if result.get('after_suite')!=predecessor_checked:raise ValueError('predecessor completion evidence changed')
+    bench.verify_sources(plan['sources'])
+    if any(budget['source_sha256'].get(k)!=v for k,v in plan['sources']['files'].items()):raise ValueError('benchmark source not frozen in budget')
+    native=Path(plan['sources']['native_path']);native_key=native.relative_to(bench.ROOT).as_posix() if native.is_relative_to(bench.ROOT) else None
+    if (budget.get('native_sha256') or budget['source_sha256'].get(native_key))!=sha(native):raise ValueError('native library not frozen in dedicated budget')
+    expected={(c['id'],p) for c in plan['cells'] for p in bench.PHASES};records=result['records']
+    keys=[(r['cell_id'],r['phase']) for r in records]
+    if len(keys)!=len(set(keys)) or set(keys)!=expected:raise ValueError('missing or duplicated dedicated workload task')
+    by_key=dict(zip(keys,records));files={str(p):sha(p) for p in (path,budget_path,plan_path,result_path,native)}
+    for name,digest in plan['sources']['files'].items():files[str(bench.ROOT/name)]=digest
+    for item in (budget['gate_evidence'],budget['predecessor_budget']):
+        p=resolve(budget_path.parent,item['path']);files[str(p)]=sha(p)
+    for name in ('suite_plan.json','suite_ledger.json'):
+        p=Path(plan['after_suite'])/name;files[str(p)]=sha(p)
+    rows=[];points=[];tasks=[]
+    for cell in plan['cells']:
+        cell_dir=folder/cell['id'];input_path=cell_dir/'input_manifest.json';inputs=read_json(input_path)
+        files[str(input_path)]=sha(input_path)
+        for name,digest in inputs['files'].items():
+            p=cell_dir/'inputs'/name
+            if sha(p)!=digest:raise ValueError('dedicated input changed')
+            files[str(p)]=digest
+        for phase in bench.PHASES:
+            record=by_key[(cell['id'],phase)];task_id=f'{cell["id"]}:{phase}';available=0
+            if record['status'] not in ('complete','timeout_retained','failed_retained','blocked_initial_fit_failure'):
+                raise ValueError('unprocessed dedicated phase')
+            if record['status']=='blocked_initial_fit_failure':
+                if phase in ('six_model_average','fit_over_trees') or by_key[(cell['id'],'six_model_average')]['status']=='complete':raise ValueError('unjustified blocked phase')
+            else:
+                if not record.get('attempts') or not record.get('files'):raise ValueError('phase lacks attempt evidence')
+                if record['status']!=record['attempts'][-1]['status']:raise ValueError('phase and final attempt status disagree')
+                actual={str(p):sha(p) for p in (cell_dir/phase).rglob('*') if p.is_file() and 'runtime_cache' not in p.parts}
+                if actual!=record['files']:raise ValueError('dedicated attempt evidence changed or includes unhashed artifacts')
+                files.update(actual)
+                for index,attempt in enumerate(record['attempts'],1):
+                    directory=Path(attempt['directory'])
+                    if directory.resolve()!=cell_dir/phase/f'attempt_{index:03d}' or directory.is_symlink():raise ValueError('attempt ownership mismatch')
+                    spec=read_json(directory/'spec.json')
+                    if spec['mode']!='formal' or spec['cell']!=cell or spec['settings']!=settings or spec['sources']!=plan['sources'] or spec['input_sha256']!=inputs['files']:
+                        raise ValueError('phase spec differs from its locked inputs')
+                    if timestamp(spec['started_utc'])<timestamp(result['first_started_utc']):raise ValueError('phase predates benchmark execution')
+                    timing=directory/'workflow_timings.jsonl';observed=[]
+                    if timing.exists():
+                        raw=timing.read_bytes()
+                        if not raw.endswith(b'\n'):raise ValueError('truncated dedicated timing')
+                        observed=[json.loads(line,parse_constant=reject_constant) for line in raw.splitlines()]
+                        if len(observed)!=1:raise ValueError('each phase process must record one API call')
+                    complete_attempt=attempt['status']=='complete'
+                    if complete_attempt and (attempt['returncode']!=0 or attempt['timed_out'] or attempt['interrupted'] or not observed):raise ValueError('false completed phase process')
+                    if complete_attempt:
+                        returned=read_json(directory/'worker_result.json')
+                        if returned['status']!='returned' or returned['formal'] is not True or returned.get('source_unchanged') is not True:raise ValueError('missing successful formal worker result')
+                        count=returned['fit_calls_started'];calls_path=directory/'fit_calls.jsonl'
+                        calls=[] if not calls_path.exists() else [json.loads(line,parse_constant=reject_constant) for line in calls_path.read_text().splitlines()]
+                        starts=[r['id'] for r in calls if r['event']=='started'];finishes=[r['id'] for r in calls if r['event']=='finished']
+                        if sorted(starts)!=list(range(1,count+1)) or sorted(finishes)!=list(range(1,count+1)):
+                            raise ValueError('complete cost is missing actual fit-call audit events')
+                        if any(r['native_threads']!=1 or r['maxiter']!=settings['maxiter'] for r in calls):raise ValueError('actual refit thread/optimizer budget differs')
+                    for timing_row in observed:
+                        if (timing_row.get('mode')!='formal' or timing_row['phase']!=phase or timing_row.get('cell_id')!=cell['id']
+                            or timing_row.get('status') not in ('returned','raised') or timing_row['host']!=plan['host']
+                            or timing_row['telemetry_source_sha256']!=plan['sources']['files'][TIMER]
+                            or any(timing_row.get(k)!=cell[k] for k in ('states','workers','areas','replicate'))
+                            or timing_row['n_tips']!=settings['n_tips']
+                            or timing_row['native_threads']!=(cell['workers'] if phase=='run_bsm' else 1)
+                            or any(timing_row['thread_environment'].get(k)!='1' for k in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS'))):
+                            raise ValueError('dedicated timing provenance mismatch')
+                        if not math.isfinite(timing_row['wall_seconds']) or timing_row['wall_seconds']<=0:raise ValueError('invalid API cost')
+                        before=timing_row['checkpoint_rows_before'];fresh=complete_attempt and timing_row['status']=='returned' and before==0
+                        row=dict(timing_row,job_id=cell['id'],task_id=task_id,workload=phase,row_id=f'{task_id}:{index}',
+                            source_path=str(timing),source_line=1,process_status=attempt['status'],api_complete_fresh=fresh,
+                            classification='complete_fresh' if fresh else 'partial_resume' if before else attempt['status'],
+                            process_wall_seconds=attempt['process_wall_seconds'],process_peak_rss_bytes=attempt['process_peak_rss_bytes'])
+                        rows.append(row)
+                        if fresh:
+                            verify_dedicated_phase(directory,cell_dir/phase,phase,settings,timing_row)
+                            points.append(dict(row,component_count=7 if phase=='six_model_average' else 1,component_row_ids=[row['row_id']]))
+                            available+=1
+                    if not observed:
+                        rows.append(dict(job_id=cell['id'],task_id=task_id,workload=phase,process_status=attempt['status'],
+                            host=plan['host'],analysis='workflow_benchmark',states=cell['states'],workers=cell['workers'],
+                            areas=cell['areas'],replicate=cell['replicate'],n_tips=settings['n_tips'],api_complete_fresh=False,
+                            classification='unavailable_terminal_API_timing',wall_seconds=None,
+                            process_wall_seconds=attempt['process_wall_seconds'],api_right_censored_elapsed_seconds=attempt['api_right_censored_elapsed_seconds']))
+            tasks.append(dict(job_id=cell['id'],task_id=task_id,workload=phase,full_cost_attempts=available,
+                status='full_cost_observed' if available else 'unavailable_full_cost',scientific_process_status=record['status']))
+    order=('profile_chi2','profile_plugin','bootstrap_lrt','six_model_average','run_bsm','fit_over_trees')
+    labels=['χ² profiles: d, e, j',f'Plug-in profiles: B={settings["n_boot_plugin"]}',f'LRT: B={settings["n_boot"]}',
+        'Six models + average',f'{settings["bsm_maps"]} single-tree maps',f'{settings["n_trees"]} trees × {settings["maps_per_tree"]} maps']
+    return dict(status='eligible_formal_workflow_costs',formal=True,source_files=files,budget_sha256=sha(budget_path),rows=rows,points=points,
+        jobs=records,cost_tasks=tasks,workload_order=order,workload_labels=labels,settings=settings,protocol='dedicated_computational_workloads',
+        full_proposal_grid=plan['full_proposal_grid'],category_counts={p:dict(full_attempts=sum(x['workload']==p for x in points),
+            unique_tasks_observed=sum(x['workload']==p and x['status']=='full_cost_observed' for x in tasks),
+            planned_tasks=sum(x['workload']==p for x in tasks)) for p in order})
+
+
+def verify_dedicated_phase(directory,shared,phase,settings,timing):
+    """Verify task IDs and primary outputs before calling an API cost complete."""
+    def table(name):
+        with (directory/name).open(newline='') as stream:return list(csv.DictReader(stream))
+    if phase=='six_model_average':
+        models=table('models.csv');cache=read_json(directory/'fits.json')
+        if len(models)!=6 or {r['model'] for r in models}!=set(MODELS) or not math.isclose(sum(float(r['weight']) for r in models),1,abs_tol=1e-10):raise ValueError('incomplete six-model cost')
+        if [r['model'] for r in cache['records']]!=list(MODELS) or not all(r['record']['converged'] for r in cache['records']):raise ValueError('six-model initial fit cache incomplete')
+        if sha(directory/'fits.npz')!=cache['array_sha256']:raise ValueError('fit cache array mismatch')
+    elif phase.startswith('profile_'):
+        intervals=table('intervals.csv')
+        if len(intervals)!=3 or {r['param'] for r in intervals}!={'d','e','j'}:raise ValueError('profile cost omits a parameter')
+        for name in ('d','e','j'):
+            if not table(f'curve_{name}.csv'):raise ValueError('profile curve missing')
+            if phase=='profile_plugin' and sorted(int(r['rep_id']) for r in table(f'plugin_{name}.csv'))!=list(range(1,settings['n_boot_plugin']+1)):
+                raise ValueError('plug-in profile omitted a calibration replicate')
+    elif phase=='bootstrap_lrt':
+        records,_=checkpoint(shared/'checkpoint.jsonl',settings['n_boot'])
+        reps=table('replicates.csv')
+        if sorted(int(r['rep_id']) for r in reps)!=list(range(1,settings['n_boot']+1)):raise ValueError('bootstrap cost discarded a replicate')
+        if timing['checkpoint_rows_after']!=len(records):raise ValueError('bootstrap timing checkpoint count mismatch')
+    elif phase=='fit_over_trees':
+        records,_=checkpoint(shared/'checkpoint.jsonl',settings['n_trees'])
+        result=read_json(directory/'multitree_result.json')
+        if result['n_planned']!=len(records) or result['n_complete']+result['n_incomplete']!=len(records):raise ValueError('multitree cost discarded a tree')
+        if len(table('per_tree_models.csv'))!=settings['n_trees']*6:raise ValueError('multitree model grid incomplete')
+        if timing['checkpoint_rows_after']!=len(records):raise ValueError('tree timing checkpoint count mismatch')
+        _verify_cost_maps(directory,'joint_',settings['n_tips'],result['n_complete']*settings['maps_per_tree'])
+    else:_verify_cost_maps(directory,'',settings['n_tips'],settings['bsm_maps'])
+
+
+def _verify_cost_maps(directory,prefix,tips,planned):
+    from collections import Counter
+    if planned==0:
+        if (directory/(prefix+'map_metadata.csv')).exists():raise ValueError('maps present despite zero complete trees')
+        marker=read_json(directory/'no_complete_tree_maps.json')
+        if marker.get('status')!='no_complete_tree_maps' or marker.get('n_complete')!=0:raise ValueError('missing all-failed tree mapping marker')
+        return
+    def table(name):
+        with (directory/(prefix+name)).open(newline='') as stream:return list(csv.DictReader(stream))
+    metadata=table('map_metadata.csv');ids=[int(r['map']) for r in metadata]
+    tuples={(r['tree_id'],r['model_id'],r['map_id']) for r in metadata}
+    if sorted(ids)!=list(range(1,planned+1)) or len(tuples)!=planned:raise ValueError('map cost has duplicated or missing IDs')
+    keys=('tree_id','tree_topology_hash','model_id','map_id','stratum_weight','precision_mode','likelihood_conditioning')
+    by_id={int(r['map']):r for r in metadata}
+    for r in metadata:
+        if any(not r.get(k) for k in keys) or r['precision_mode']!='strict_f64' or r['likelihood_conditioning']!='tip_survival':raise ValueError('map provenance missing')
+    clado=table('cladogenetic_events.csv');counts=Counter(int(r['map']) for r in clado)
+    if counts!={i:tips-1 for i in ids}:raise ValueError('cladogenetic event count incomplete')
+    for row in clado+table('anagenetic_events.csv'):
+        metadata_row=by_id.get(int(row['map']))
+        if metadata_row is None or any(row[k]!=metadata_row[k] for k in keys):raise ValueError('event provenance differs from its map')
