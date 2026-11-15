@@ -363,11 +363,19 @@ def inspect_dedicated_benchmark(inventory_path):
     else:
         import benchmark_v12_workflows as bench
     path=Path(inventory_path).resolve();inventory=read_json(path)
-    if inventory.get('schema')!='rustbears.workflow_benchmark.inputs.v1' or inventory.get('formal') is not True:
+    core=None
+    if inventory.get('schema')=='rustbears.workflow_benchmark.inputs.v2':
+        if __package__:
+            from .v12_core_reporting import core_cost_context
+        else:
+            from v12_core_reporting import core_cost_context
+        core=core_cost_context(path,inventory,bench)
+    if not core and (inventory.get('schema')!='rustbears.workflow_benchmark.inputs.v1' or inventory.get('formal') is not True):
         raise ValueError('formal dedicated benchmark inventory required; no smoke promotion')
     budget_path=resolve(path.parent,inventory['budget']['path'])
     if sha(budget_path)!=inventory['budget']['sha256']:raise ValueError('dedicated budget SHA mismatch')
-    budget,_=bench.load_locked_budget(budget_path,source_script=bench.__file__,execute=True)
+    if core:budget=core['budget']
+    else:budget,_=bench.load_locked_budget(budget_path,source_script=bench.__file__,execute=True)
     folder=resolve(path.parent,inventory['benchmark']);plan_path=folder/'plan.json';result_path=folder/'results.json'
     plan=read_json(plan_path);result=read_json(result_path)
     if plan.get('mode')!='formal' or plan.get('formal') is not True or result.get('formal') is not True:
@@ -375,21 +383,28 @@ def inspect_dedicated_benchmark(inventory_path):
     if result.get('status')!='all_planned_phases_processed' or result.get('source_unchanged') is not True or result.get('plan_sha256')!=sha(plan_path):
         raise ValueError('dedicated benchmark is not completely processed with unchanged sources')
     if timestamp(result['first_started_utc'])<timestamp(budget['locked_utc']):raise ValueError('benchmark execution predates its budget lock')
+    if core and timestamp(result['first_started_utc'])<timestamp(core['specified_utc']):raise ValueError('core design postdates benchmark execution')
     if plan.get('budget',{}).get('sha256')!=sha(budget_path) or plan['budget']['payload']!=budget:raise ValueError('dedicated benchmark budget binding mismatch')
     selected=bench.select_budget_job(budget,analysis='workflow_benchmark');settings={k:v for k,v in selected.items() if k!='analysis'}
     if plan['settings']!=settings or plan['cells']!=bench.cells_for(settings) or plan['phases']!=list(bench.PHASES):raise ValueError('dedicated benchmark dimensions differ from locked design')
     predecessor,digest=bench.predecessor_budget(budget,budget_path)
-    predecessor_checked=bench.completed_statistical_suite(plan['after_suite'],predecessor,digest)
+    predecessor_checked=core['predecessor_checked'] if core else bench.completed_statistical_suite(plan['after_suite'],predecessor,digest)
     if result.get('after_suite')!=predecessor_checked:raise ValueError('predecessor completion evidence changed')
-    bench.verify_sources(plan['sources'])
+    if not core:bench.verify_sources(plan['sources'])
     if any(budget['source_sha256'].get(k)!=v for k,v in plan['sources']['files'].items()):raise ValueError('benchmark source not frozen in budget')
-    native=Path(plan['sources']['native_path']);native_key=native.relative_to(bench.ROOT).as_posix() if native.is_relative_to(bench.ROOT) else None
+    source_root=core['root'] if core else bench.ROOT
+    if core:
+        expected_sources=set(bench.SOURCE_FILES)|{p.relative_to(source_root).as_posix() for p in (source_root/'rustbears').rglob('*.py')}
+        if set(plan['sources']['files'])!=expected_sources:raise ValueError('dedicated source manifest is incomplete')
+    native=Path(plan['sources']['native_path']);native_key=native.relative_to(source_root).as_posix() if native.is_relative_to(source_root) else None
     if (budget.get('native_sha256') or budget['source_sha256'].get(native_key))!=sha(native):raise ValueError('native library not frozen in dedicated budget')
+    if core and (native_key is None or plan['sources']['native_sha256']!=sha(native)):raise ValueError('dedicated native path or recorded SHA differs from execution source')
     expected={(c['id'],p) for c in plan['cells'] for p in bench.PHASES};records=result['records']
     keys=[(r['cell_id'],r['phase']) for r in records]
     if len(keys)!=len(set(keys)) or set(keys)!=expected:raise ValueError('missing or duplicated dedicated workload task')
     by_key=dict(zip(keys,records));files={str(p):sha(p) for p in (path,budget_path,plan_path,result_path,native)}
-    for name,digest in plan['sources']['files'].items():files[str(bench.ROOT/name)]=digest
+    if core:files.update(core['files'])
+    for name,digest in plan['sources']['files'].items():files[str(source_root/name)]=digest
     for item in (budget['gate_evidence'],budget['predecessor_budget']):
         p=resolve(budget_path.parent,item['path']);files[str(p)]=sha(p)
     for name in ('suite_plan.json','suite_ledger.json'):
@@ -471,12 +486,16 @@ def inspect_dedicated_benchmark(inventory_path):
     order=('profile_chi2','profile_plugin','bootstrap_lrt','six_model_average','run_bsm','fit_over_trees')
     labels=['χ² profiles: d, e, j',f'Plug-in profiles: B={settings["n_boot_plugin"]}',f'LRT: B={settings["n_boot"]}',
         'Six models + average',f'{settings["bsm_maps"]} single-tree maps',f'{settings["n_trees"]} trees × {settings["maps_per_tree"]} maps']
-    return dict(status='eligible_formal_workflow_costs',formal=True,source_files=files,budget_sha256=sha(budget_path),rows=rows,points=points,
+    audit=dict(status='eligible_formal_workflow_costs',formal=True,source_files=files,budget_sha256=sha(budget_path),rows=rows,points=points,
         jobs=records,cost_tasks=tasks,workload_order=order,workload_labels=labels,settings=settings,protocol='dedicated_computational_workloads',
         stratum_counts=dedicated_stratum_counts(settings,tasks,points,order),
         full_proposal_grid=plan['full_proposal_grid'],category_counts={p:dict(full_attempts=sum(x['workload']==p for x in points),
             unique_tasks_observed=sum(x['workload']==p and x['status']=='full_cost_observed' for x in tasks),
             planned_tasks=sum(x['workload']==p for x in tasks)) for p in order})
+    if core:
+        audit.update(scope='core_v1',repetition_interpretation=core['repetition_interpretation'],
+            independent_repetitions=1,between_repeat_variability_estimated=False)
+    return audit
 
 
 def verify_dedicated_phase(directory,shared,phase,settings,timing):

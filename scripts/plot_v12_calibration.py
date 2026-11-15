@@ -192,7 +192,14 @@ def load_run(item,base,budget_hash):
 
 
 def inspect_inputs(path):
-    path=Path(path).resolve();inventory=read_json(path);budget,budget_path,jobs=budget_info(inventory,path.parent)
+    path=Path(path).resolve();inventory=read_json(path)
+    if inventory.get('schema')=='rustbears.figure2.inputs.v2':
+        if __package__:
+            from .v12_core_reporting import inspect_collection
+        else:
+            from v12_core_reporting import inspect_collection
+        return inspect_collection(path)
+    budget,budget_path,jobs=budget_info(inventory,path.parent)
     budget_hash=sha(budget_path);runs=[load_run(item,path.parent,budget_hash) for item in inventory['runs']]
     expected={job_key(j):j for j in jobs}
     if len(runs)!=len(expected) or {r['key'] for r in runs}!=set(expected):raise ValueError('every required registered job must be present exactly once')
@@ -238,19 +245,21 @@ def rate_row(values,planned,*,possible=None):
         status='unavailable' if n==0 else 'complete' if missing==0 and lo==hi else 'missing_or_failure_bounded')
 
 
-def main_tables(runs):
+def main_tables(runs,*,selection=None):
+    selection=CONTRACT['main_panels'] if selection is None else selection
     tables={name:[] for name in ('a','b','c','d')}
     for run in runs:
         analysis=run['analysis'];job=run['job'];rows=run['records'];summary=run['summary']
         common=dict(source_run=str(run['path']),source_analysis=analysis)
-        if analysis=='v1' and job['areas']==4:
+        if 'source_budget_sha256' in run:common.update(source_budget_sha256=run['source_budget_sha256'],collection_id=run['collection_id'],origin=run['origin'])
+        if analysis=='v1' and job['areas']==selection['a']['areas'] and job['n_tips'] in selection['a']['tips'] and job['scenario'] in selection['a']['scenarios']:
             for method in METHODS:
                 key=('bootstrap_plugin' if method=='bootstrap_plugin' else 'asymptotic_chi2')+'_j'
                 field={'onesided_zero_reference':'one_sided_reference_covers','wald_local':'wald_covers'}.get(method,'covered')
                 values=[r['outputs'].get(key,{}).get(field) for r in rows]
                 tables['a'].append(dict(common,n_tips=job['n_tips'],areas=job['areas'],scenario=job['scenario'],method=method,
                     j_truth=run['manifest']['truth']['j'],**rate_row(values,job['outer_replicates'])))
-        elif analysis=='v2b' and not job['finite_b_extrapolation']:
+        elif analysis=='v2b' and not job['finite_b_extrapolation'] and job['scenario'] in selection['b']['scenarios']:
             for route in ROUTES:
                 available=[r['outputs'][route] for r in rows if route in r['outputs']]
                 lower=sum(r['p_failure_bounds'][1]<=.05 for r in available)
@@ -277,7 +286,13 @@ def main_tables(runs):
                           else None for v in values]
                     tables['d'].append(dict(common,section=section,event=event,truth=truth,
                         **rate_row(hits,job['settings'][section]['replicates'])))
-    if [len(tables[x]) for x in ('a','b','c','d')]!=[32,15,3,4]:raise ValueError('predeclared main-panel inventory is incomplete')
+    expected=dict(a={(n,s,m) for n in selection['a']['tips'] for s in selection['a']['scenarios'] for m in METHODS},
+        b={(s,r) for s in selection['b']['scenarios'] for r in ROUTES},
+        c={(s,) for s in selection['c']['support_bins']},d={(s,e) for s in selection['d']['sections'] for e in selection['d']['events']})
+    fields=dict(a=('n_tips','scenario','method'),b=('scenario','route'),c=('support_bin',),d=('section','event'))
+    for panel in tables:
+        ids=[tuple(r[k] for k in fields[panel]) for r in tables[panel]]
+        if len(ids)!=len(expected[panel]) or set(ids)!=expected[panel]:raise ValueError('predeclared main-panel inventory is incomplete or duplicated')
     return tables
 
 
@@ -297,12 +312,13 @@ def write_csv(path,rows):
             writer.writerow({k:json.dumps(v,ensure_ascii=False,allow_nan=False) if isinstance(v,(dict,list,tuple)) else v for k,v in row.items()})
 
 
-def export_tables(runs,tables,out):
+def export_tables(runs,tables,out,*,selection=None,scope='full_v1'):
     folder=out/'source_data';folder.mkdir(exist_ok=True)
     for panel,rows in tables.items():write_csv(folder/f'figure2_{panel}.csv',rows)
     leaves=[];intervals=[];lrt=[];predictions=[];weights=[];clades=[];datasets=[];raw=[];indices=[]
     for run in runs:
         source=dict(analysis=run['analysis'],source_run=str(run['path']),job=json.dumps(run['job'],sort_keys=True))
+        if 'source_budget_sha256' in run:source.update(source_budget_sha256=run['source_budget_sha256'],collection_id=run['collection_id'],origin=run['origin'])
         leaves.extend(dict(source,**leaf) for leaf in leaf_rows(run['summary']))
         for row in run['records']:
             identifier=row.get('rep_id',row.get('dataset',row.get('id')))
@@ -332,8 +348,9 @@ def export_tables(runs,tables,out):
     with (folder/'all_run_summaries.jsonl').open('w') as handle:
         for run in runs:handle.write(json.dumps(dict(source_run=str(run['path']),summary=run['summary']),ensure_ascii=False,allow_nan=False)+'\n')
     write_json(folder/'checkpoint_index.json',indices)
-    write_json(folder/'source_data_scope.json',dict(main_selection=CONTRACT['main_panels'],
-        all_registered_summaries_and_outcomes_retained=True,unavailable_values='empty CSV field or JSON null; never zero-imputed',
+    write_json(folder/'source_data_scope.json',dict(main_selection=selection or CONTRACT['main_panels'],scope=scope,
+        all_registered_summaries_and_outcomes_retained=scope=='full_v1',all_declared_calibration_summaries_and_outcomes_retained=True,
+        unavailable_values='empty CSV field or JSON null; never zero-imputed',
         checkpoint_arrays='Original checkpoints and array files remain untouched; their index and stored shard digests are retained, not flattened into CSV.',
         interval_definitions=CONTRACT['rate_display']))
     return {p.relative_to(out).as_posix():sha(p) for p in folder.iterdir() if p.is_file()}
@@ -351,6 +368,7 @@ def render(tables,out,qa_tools,*,eligibility=None):
         raise ValueError('render requires verified formal input eligibility; no synthetic or smoke image')
     if not eligibility.get('source_files') or any(sha(path)!=digest for path,digest in eligibility['source_files'].items()):
         raise ValueError('formal sources changed after verification')
+    selection=eligibility.get('main_panels',CONTRACT['main_panels'])
     qa_tools=Path(qa_tools).resolve()
     required=('validate_figure.py','audit_panel_alignment.py','audit_pdf_text.py','audit_figure_collisions.py')
     if any(not (qa_tools/name).is_file() for name in required):raise ValueError('complete QA tools directory is required before rendering')
@@ -398,14 +416,14 @@ def render(tables,out,qa_tools,*,eligibility=None):
         ax.tick_params(axis='y',length=0,pad=5)
     titles=dict(interior='Interior',e_zero='e = 0',j_zero='j = 0',double_zero='e = j = 0')
     ax=axs['a'];labels=[]
-    for i,(tips,scenario) in enumerate((n,s) for n in (40,150) for s in V1_SCENARIOS):
+    for i,(tips,scenario) in enumerate((n,s) for n in selection['a']['tips'] for s in selection['a']['scenarios']):
         local=[next(r for r in tables['a'] if r['n_tips']==tips and r['scenario']==scenario and r['method']==method) for method in METHODS]
         labels.append(f'{tips} tips: {titles[scenario]}\nN = '+ '/'.join(str(r['n_observed']) for r in local))
         for offset,row,method in zip([-.27,-.09,.09,.27],local,METHODS):point(ax,row,i+offset,*method_style[method][:2])
     rate_axes(ax,labels);ax.axvline(.95,color='#777777',linestyle='--',lw=.6);ax.set_xlabel('j interval coverage')
     header(ax,'a',list(method_style.values()))
     labels=[];ax=axs['b'];names=dict(null_e0='Null: e = 0',null_e02='Null: e = 0.02',alt_j001='j = 0.01',alt_j003='j = 0.03',alt_j008='j = 0.08')
-    for i,scenario in enumerate(V2_SCENARIOS):
+    for i,scenario in enumerate(selection['b']['scenarios']):
         local=[next(r for r in tables['b'] if r['scenario']==scenario and r['route']==route) for route in ROUTES]
         labels.append(names[scenario]+'\nN = '+'/'.join(str(r['n_observed']) for r in local))
         for offset,row,route in zip([-.20,0,.20],local,ROUTES):point(ax,row,i+offset,*route_style[route][:2])
@@ -465,13 +483,18 @@ def main():
         write_json(out/'input_audit.json',dict(status='ineligible_inputs',formal=False,rendered=False,error=str(error)))
         p.error(str(error))
     write_json(out/'input_audit.json',audit)
+    if audit.get('scope')=='core_v1':
+        write_json(out/'figure2_contract.json',dict(CONTRACT,scope='core_v1',main_panels=audit['main_panels'],
+            result_claim='Core scope only; expanded original grids excluded by prospective amendment.'))
     if not args.render and not args.export_tables:
         print(json.dumps(dict(status='formal_inventory_checked_no_render',jobs=len(runs))));return
-    tables=main_tables(runs)
+    tables=main_tables(runs,selection=audit.get('main_panels'))
     if not all(sha(path)==digest for path,digest in audit['source_files'].items()):raise ValueError('source inputs changed during inspection')
-    artifacts=export_tables(runs,tables,out)
+    artifacts=export_tables(runs,tables,out,selection=audit.get('main_panels'),scope=audit.get('scope','full_v1'))
     state=dict(status='formal_source_tables_exported',formal=True,rendered=False,artifacts=artifacts,
         plotting_source_sha256=sha(__file__),source_inventory_sha256=audit['inventory_sha256'])
+    if audit.get('scope')=='core_v1':
+        state.update(scope='core_v1',collection_reader_sha256=sha(Path(__file__).with_name('v12_core_reporting.py')))
     if args.render:
         if args.qa_tools_dir is None:p.error('--qa-tools-dir is required for render; no graphic backend opened')
         try:state.update(render(tables,out,args.qa_tools_dir,eligibility=audit),rendered=True)
