@@ -160,7 +160,7 @@ def main():
     fit_list=[make_fit(scale) for scale in (.6,.8,1,1.2,1.4)];sym=symmetric_fit()
     moments=[exact_moments(f.model,f.params) for f in fit_list]
     source_files=[Path(__file__),ROOT/"rustbears/uncertainty/diagnostics.py",ROOT/"rustbears/uncertainty/rng.py",ROOT/"scripts/validate_v12_gate1.py"]
-    hashes={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
+    hashes={p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
     manifest=dict(protocol="V4-full-v1",mode=args.mode,seed=args.seed,formal_settings=FORMAL,full_proposal_settings=FORMAL,
                   prospectively_amended=bool(args.mode=="formal" and settings!=FORMAL),locked_budget=budget_record,
                   execution_settings=settings,sections=sections,source_sha256=hashes,

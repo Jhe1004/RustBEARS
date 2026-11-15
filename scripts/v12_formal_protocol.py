@@ -24,7 +24,7 @@ def load_locked_budget(path, *, source_script, execute=False):
     if not isinstance(budget.get("jobs"), list) or not budget["jobs"]:
         raise ValueError("locked budget must contain a nonempty jobs list")
     script = Path(source_script).resolve()
-    relative = str(script.relative_to(REPO))
+    relative = script.relative_to(REPO).as_posix()
     for name, source in ((relative, script), ("scripts/v12_formal_protocol.py", Path(__file__))):
         if budget.get("source_sha256", {}).get(name) != hashlib.sha256(source.read_bytes()).hexdigest():
             raise ValueError("locked budget does not match source script " + name)

@@ -78,14 +78,27 @@ jobs:
             any::testthat
             any::knitr
             any::rmarkdown
-            any::rexpokit
-            any::cladoRcpp
+            any::devtools
+            nmatzke/rexpokit@bfc071ec6d2235a906bbeee122f711f6fea1b78b
+            nmatzke/cladoRcpp@bc5198f075f135eb68913cf987a2f5169021c7ce
             any::FD
             any::snow
             any::minqa
             any::gdata
             any::phylobase
-            nmatzke/BioGeoBEARS@876a48c4b3d6ada678e4de4d130b5b3bafea2b2c
+      - name: Install pinned independent legacy oracle
+        shell: Rscript {0}
+        env:
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Its retained example data load devtools during installation, though
+          # upstream does not declare that loader dependency. Install it first
+          # in the preceding step, then the unmodified pinned upstream package.
+          stopifnot(requireNamespace('devtools', quietly=TRUE))
+          remotes::install_github('nmatzke/BioGeoBEARS@876a48c4b3d6ada678e4de4d130b5b3bafea2b2c',
+                                  dependencies=FALSE, upgrade='never', build_vignettes=FALSE)
+          stopifnot(identical(packageDescription('BioGeoBEARS')$RemoteSha,
+                              '876a48c4b3d6ada678e4de4d130b5b3bafea2b2c'))
       - name: Synchronize and verify native source
         run: |
           python scripts/sync_r_sources.py --manifest evidence/r-rust-mirror.json

@@ -32,3 +32,16 @@ The retained `Psychotria_ML_DEC` example has its serialized S4 class package
 metadata migrated from `BioGeoBEARS` to `RustBEARS`. The numerical example values
 are unchanged. This removes an accidental requirement to install the upstream
 package merely to load the bundled data.
+
+The independent upstream regression oracle is installed after its dependencies.
+BioGeoBEARS 1.1.4 retains example data that load `devtools` during installation,
+although its DESCRIPTION does not declare that loader dependency. CI installs
+`devtools` first, then installs the unmodified pinned BioGeoBEARS source with
+no dependency upgrades. The original native oracle dependencies are also pinned
+(cladoRcpp `bc5198f075f135eb68913cf987a2f5169021c7ce`, rexpokit
+`bfc071ec6d2235a906bbeee122f711f6fea1b78b`). These are optional validation tools;
+they do not replace RustBEARS production kernels.
+
+Relative artifact/source-manifest keys use POSIX `/` separators on every OS.
+This makes budget fingerprints and exported artifact names portable to Windows;
+it does not change absolute runtime paths, numeric results, seeds, or input data.

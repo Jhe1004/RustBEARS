@@ -51,7 +51,7 @@ def setup(args):
         worker_grid=[1,2,4,8],execution_order=[1,2,4,8],repetitions_per_worker_setting=1,
         inner_native_threads=1,blas_threads=1,maxiter=500,contract='tip_survival',models=['DEC','DEC+J'],
         source_commit=args.source_commit,software=b.__version__,package_source=str(args.package_source),native_path=str(native),native_sha256=sha(native),
-        source_sha256={str(p.relative_to(args.package_source)):sha(p) for p in sorted((args.package_source/'rustbears').rglob('*.py'))},
+        source_sha256={p.relative_to(args.package_source).as_posix():sha(p) for p in sorted((args.package_source/'rustbears').rglob('*.py'))},
         script_sha256=sha(__file__),input_sha256={n:sha(args.input_dir/n) for n in ['tree.newick','geography.data']},
         initial_templates={name:{key:dict(type=p.type,init=p.init,min=p.min,max=p.max) for key,p in template(b,name).params.items()} for name in ['DEC','DEC+J']},
         seed=20261115,rng={r:dict(identity=t.to_dict(),seed=seeds[r]) for r,t in tasks.items()},

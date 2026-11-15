@@ -273,7 +273,7 @@ def main():
         budget_excludes_surrogate_retries_profile_and_extra_guard_refits=True,
         actual_no_retry_nested_fit_calls_including_surrogate=outer*(6+9*(1+inner+alt_count)) if args.analysis=="v2b" else None,
         resolved_input=model_manifest(base),
-        source_sha256={str(p.relative_to(REPO)):hashlib.sha256(p.read_bytes()).hexdigest()
+        source_sha256={p.relative_to(REPO).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
                        for p in sorted((REPO/"rustbears").rglob("*.py"))},
         script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
     args.output.mkdir(parents=True,exist_ok=True)

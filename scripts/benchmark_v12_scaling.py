@@ -266,7 +266,7 @@ def main():
     if (output/"manifest.json").exists():
         raise FileExistsError("use a new output directory; benchmark runs are immutable")
     source = {name: sha(ROOT/name) for name in ("scripts/benchmark_v12_scaling.py","scripts/benchmark_v12_scaling_oracle.R")}
-    source.update({str(path.relative_to(ROOT)):sha(path) for path in sorted((ROOT/"rustbears").rglob("*.py"))})
+    source.update({path.relative_to(ROOT).as_posix():sha(path) for path in sorted((ROOT/"rustbears").rglob("*.py"))})
     source["scripts/run_uncertainty_validation.py"] = sha(ROOT/"scripts/run_uncertainty_validation.py")
     from rustbears._ffi import _resolve_native_library_path
     native_path = Path(_resolve_native_library_path())
@@ -302,7 +302,7 @@ def main():
     oracle_hashes = {}
     for name in ("BioGeoBEARS","cladoRcpp","rexpokit"):
         for path in sorted((args.oracle_library/name).rglob("*")):
-            if path.is_file():oracle_hashes[str(path.relative_to(args.oracle_library))] = sha(path)
+            if path.is_file():oracle_hashes[path.relative_to(args.oracle_library).as_posix()] = sha(path)
     write_json(output/"original_oracle_files.json",oracle_hashes)
     manifest["original_oracle_files_sha256"] = sha(output/"original_oracle_files.json")
     manifest["runtime_executables"] = {key:dict(path=str(getattr(args,key)),sha256=sha(getattr(args,key))) for key in ("rscript","revbayes","lagrange")}

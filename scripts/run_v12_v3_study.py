@@ -142,7 +142,7 @@ def main():
     from rustbears._ffi import _resolve_native_library_path
     import rustbears
     package_root=Path(rustbears.__file__).resolve().parent
-    production_hashes={str(path.relative_to(package_root)):sha(path) for path in sorted(package_root.rglob('*.py'))}
+    production_hashes={path.relative_to(package_root).as_posix():sha(path) for path in sorted(package_root.rglob('*.py'))}
     native_path=Path(_resolve_native_library_path())
     manifest.update(production_source_sha256=production_hashes,native_sha256=sha(native_path))
     path=output/'execution_manifest.json'

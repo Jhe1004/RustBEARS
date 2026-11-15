@@ -127,7 +127,7 @@ def main():
         **settings,seed=args.seed,workers=args.workers,locked_budget=budget_record,
         protocol_scope='workflow_smoke' if args.mode=='smoke' else 'full_proposal_case' if formal_full else 'prospectively_amended_formal_case',
         workflow_script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        source_sha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((ROOT/'rustbears').rglob('*.py'))},
+        source_sha256={p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((ROOT/'rustbears').rglob('*.py'))},
         resolved_reference_model=canonical_manifest(model_manifest(b.BioGeoBEARS(tree,geog,case_model_template('DEC'),
             likelihood_conditioning='tip_survival',max_range_size=max_range_size))),
         model_parameter_bounds={name:{k:[p.min,p.max] for k,p in case_model_template(name).params.items() if p.type=='free'} for name in models},
@@ -205,7 +205,7 @@ def main():
                 pval=result.pval_mc_conservative,failure_bounds=result.pval_failure_bounds,
                 mc_ci95=result.pval_mc_ci95,n_failed=result.n_failed))
         maps=timer.run('run_bsm',lambda:average.run_bsm(num_maps=manifest['bsm_maps'],num_threads=args.workers,seed=args.seed),
-            contract=contract,planned_maps=manifest['bsm_maps'])
+            contract=contract,planned_maps=manifest['bsm_maps'],native_threads=args.workers)
         mapping=write_bsm_outputs(maps,directory)
         report['contracts'][contract]=dict(bootstrap=bootstrap,profiles=profiles,
             precision_target_met=mapping['precision_target_met'],single_tree_mapping=mapping)
