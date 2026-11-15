@@ -378,7 +378,7 @@ def render(tables,out,qa_tools,*,eligibility=None):
             handles=[Line2D([],[],color=c,marker=m,linestyle='none',markersize=3.5,label=label) for c,m,label in styles]
             h.legend(handles=handles,loc='center',ncol=2 if len(styles)>3 else len(styles),frameon=False,
                      handletextpad=.4,columnspacing=.9,borderaxespad=0)
-        ax.annotate(key,(0,1),xytext=(-24,15),textcoords='offset points',fontweight='bold',fontsize=8,ha='left',va='bottom')
+        ax.annotate(key+')',(0,1),xytext=(-24,15),textcoords='offset points',fontweight='bold',fontsize=8,ha='left',va='bottom')
     def point(ax,row,y,color,marker):
         value=row['estimate']
         if value is None:
@@ -435,7 +435,7 @@ def render(tables,out,qa_tools,*,eligibility=None):
         tolerance_pt=1.5,gutter_tolerance_pt=1.5,require_panel_labels=True,strict=True)
     fig.savefig(stem.with_suffix('.pdf'),dpi=600)
     fig.savefig(stem.with_suffix('.svg'),dpi=600)
-    fig.savefig(stem.with_suffix('.tiff'),dpi=600)
+    fig.savefig(stem.with_suffix('.tiff'),dpi=600,pil_kwargs={'compression':'tiff_lzw'})
     fig.savefig(stem.with_suffix('.png'),dpi=600)
     plt.close(fig)
     audit_command([sys.executable,str(qa_tools/'audit_pdf_text.py'),str(stem.with_suffix('.pdf')),'--min-pt','8','--json'],out/'figure2.glyph-audit.json')

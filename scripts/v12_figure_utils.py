@@ -49,10 +49,12 @@ def configure_plotting():
 def save_figure(fig, output, stem):
     output = Path(output)
     fig.canvas.draw()
-    for extension in ('pdf', 'svg', 'png'):
-        fig.savefig(output / f'{stem}.{extension}', **({'dpi': 600} if extension == 'png' else {}))
+    for extension in ('pdf', 'svg', 'png', 'tiff'):
+        options={'dpi':600} if extension in ('png','tiff') else {}
+        if extension=='tiff':options['pil_kwargs']={'compression':'tiff_lzw'}
+        fig.savefig(output / f'{stem}.{extension}', **options)
     write_json(output / 'render_provenance.json', dict(
-        outputs={f'{stem}.{extension}': sha(output / f'{stem}.{extension}') for extension in ('pdf', 'svg', 'png')},
+        outputs={f'{stem}.{extension}': sha(output / f'{stem}.{extension}') for extension in ('pdf', 'svg', 'png', 'tiff')},
         status='rendered_awaiting_text_collision_alignment_and_visual_QA'))
 
 

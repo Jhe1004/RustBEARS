@@ -156,7 +156,7 @@ def main():
             a.text(width*1.035,ys[node],tree.labels[node].replace('_',' '),va='center',ha='left',fontsize=8,fontstyle='italic')
             a.scatter(width*1.012,ys[node],color=range_colors[int(np.argmax(prob[node]))],marker='s',s=10,linewidths=0)
     a.set_xlim(-.025*width,3.35*width);a.set_ylim(tree.tip_count-.25,-1.25)
-    a.set_axis_off();a.text(0,1.02,'a  Reference tree',transform=a.transAxes,fontsize=10,fontweight='bold')
+    a.set_axis_off();a.text(0,1.02,'a)  Reference tree',transform=a.transAxes,fontsize=10,fontweight='bold')
     scale=width/4;a.plot([0,scale],[tree.tip_count+.1]*2,color='black',lw=.8,clip_on=False)
     a.text(scale/2,tree.tip_count+.9,f'{scale:.3g} tree-time units',ha='center',va='top',fontsize=8)
     a.legend(handles=[Line2D([],[],marker='o',color=range_colors[i],linestyle='',label=name) for i,name in enumerate(['_','E','N','EN']) if i>0],
@@ -211,7 +211,7 @@ def main():
             e.scatter(row['mean'],y,s=14,marker=['o','s'][ci],facecolor=colors[ci] if row.assessed else 'white',edgecolor=colors[ci],linewidth=.7)
     e.set_yticks(range(3),['Dispersal','Extirpation','Founder']);e.set_ylim(2.5,-.5);e.set_xlabel('Event count')
     for letter,ax,title in [('b',b,'Profile'),('c',c,'Nested comparison'),('d',d,'Across trees'),('e',e,'History vs precision')]:
-        ax.text(-.55,1.08,letter,transform=ax.transAxes,fontsize=10,fontweight='bold')
+        ax.text(-.55,1.08,letter+')',transform=ax.transAxes,fontsize=10,fontweight='bold')
         if letter!='b':ax.set_title(title,fontsize=9,pad=10)
     audit_alignment(fig,args.output,'figure3',args.audit_scripts)
     save_figure(fig,args.output,'figure3');plt.close(fig)
