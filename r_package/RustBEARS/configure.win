@@ -36,5 +36,20 @@ cargo --config 'source.crates-io.replace-with="vendored-sources"' \
       --release --locked --offline -p bgb-ffi --features r-blas
 
 archive_rel="rust/target/$gnu_target/release/libbgb_ffi.a"
-printf 'PKG_LIBS = %s $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll\n' "$archive_rel" > src/Makevars.win
+# Rust's Windows synchronization primitives call WaitOnAddress/WakeByAddress*.
+# Their import library must accompany the static archive when Rtools links it.
+printf 'PKG_LIBS = %s $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll -lsynchronization\n' "$archive_rel" > src/Makevars.win
+
+# Discard build intermediates after the final shared library is linked.
+# This follows rextendr's all -> SHLIB -> rust_clean ordering; it prevents
+# R CMD check from treating the bundled Rust standard-library archive as
+# package object code. Runtime panic and allocation-failure behavior is unchanged.
+cat >> src/Makevars.win <<'MAKEVARS'
+
+.PHONY: all rust_clean
+all: $(SHLIB) rust_clean
+rust_clean: $(SHLIB)
+	rm -rf rust/target
+MAKEVARS
+
 printf '\n$(SHLIB): %s\n' "$archive_rel" >> src/Makevars.win

@@ -78,6 +78,13 @@ jobs:
             any::testthat
             any::knitr
             any::rmarkdown
+            any::rexpokit
+            any::cladoRcpp
+            any::FD
+            any::snow
+            any::minqa
+            any::gdata
+            any::phylobase
       - name: Synchronize and verify native source
         run: python scripts/sync_r_sources.py --manifest evidence/r-rust-mirror.json
       - name: Check R source package

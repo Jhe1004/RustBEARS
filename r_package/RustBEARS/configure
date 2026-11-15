@@ -9,5 +9,17 @@ case "$(uname -s)" in
 esac
 printf 'PKG_LIBS = rust/target/release/libbgb_ffi.a $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) %s\n' "$native_libs" > src/Makevars
 
+# Discard build intermediates after the final shared library is linked.
+# This follows rextendr's all -> SHLIB -> rust_clean ordering; it prevents
+# R CMD check from treating the bundled Rust standard-library archive as
+# package object code. Runtime panic and allocation-failure behavior is unchanged.
+cat >> src/Makevars <<'MAKEVARS'
+
+.PHONY: all rust_clean
+all: $(SHLIB) rust_clean
+rust_clean: $(SHLIB)
+	rm -rf rust/target
+MAKEVARS
+
 # Re-link R shared library whenever the Rust archive changes.
 printf '\n$(SHLIB): rust/target/release/libbgb_ffi.a\n' >> src/Makevars

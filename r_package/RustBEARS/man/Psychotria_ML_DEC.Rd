@@ -9,7 +9,9 @@ R interface. It illustrates the legacy result structure, not a v1.2 calibration 
 model input/output and node probability components.}
 \details{This stored historical object has no v1.2 input fingerprint or explicit
 probability-contract metadata. Refit the corresponding bundled geography and
-tree before calling the new uncertainty or prepared sampling functions.}
+tree before calling the new uncertainty or prepared sampling functions.
+The serialized S4 class package references have been migrated to RustBEARS;
+all numerical values from the retained example are unchanged.}
 \source{Original BioGeoBEARS example data distributed under GPL-compatible terms
 with the BioGeoBEARS framework by Nicholas J. Matzke.}
 \references{Matzke, N. J. (2014). Model selection in historical biogeography
