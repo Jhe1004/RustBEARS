@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import platform
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -27,6 +28,59 @@ sys.path.insert(0, str(ROOT))
 CASES = {4: (2, 2), 16: (4, 4), 57: (6, 4), 128: (7, 7)}
 THREAD_ENV = dict(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
                   VECLIB_MAXIMUM_THREADS="1", NUMEXPR_NUM_THREADS="1")
+
+
+class BenchmarkInterrupted(Exception):
+    """An owned benchmark was stopped; completed measurements remain evidence."""
+
+
+class ExecutionControl:
+    """Remember signals without abandoning the owned child or starting another."""
+    def __init__(self):
+        self.signum = None
+
+    def request_stop(self, signum, _frame=None):
+        if self.signum is None:
+            self.signum = signum
+
+    def __enter__(self):
+        self.previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+        for s in self.previous:
+            signal.signal(s, self.request_stop)
+        return self
+
+    def __exit__(self, *_args):
+        for s, handler in self.previous.items():
+            signal.signal(s, handler)
+
+
+def inherited_pipeline_lock():
+    """Validate and retain the supervisor's lock through the measured child."""
+    value = os.environ.get("RUSTBEARS_PIPELINE_LOCK_FD")
+    if value is None:
+        return ()
+    if not value.isdecimal() or int(value) < 3:
+        raise ValueError("invalid inherited pipeline lock descriptor")
+    fd = int(value)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        raise ValueError("inherited pipeline lock must be an open regular file")
+    return (fd,)
+
+
+def finish_stopped_group(pgid, signum, terminated):
+    """A reaped leader does not imply its owned descendants have stopped."""
+    if terminated is None:
+        terminated = time.perf_counter()
+        try: os.killpg(pgid, signum)
+        except ProcessLookupError: return
+    while True:
+        try: os.killpg(pgid, 0)
+        except ProcessLookupError: return
+        if time.perf_counter()-terminated >= 2:
+            try: os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            return
+        time.sleep(.002)
 
 
 def sha(path):
@@ -113,10 +167,13 @@ chain.run(generations=1)
     return source + "q()\n"
 
 
-def measured(command, folder, name, timeout):
+def measured(command, folder, name, timeout, control=None, lock_fds=()):
     """POSIX wait4 measures each process separately, with bounded timeout cleanup."""
     if not hasattr(os, "wait4"):
         raise RuntimeError("This Mac/Linux benchmark requires per-process wait4 RSS")
+    control = ExecutionControl() if control is None else control
+    if control.signum is not None:
+        raise BenchmarkInterrupted("stopped before process launch")
     cache = folder / "runtime_cache"; cache.mkdir(exist_ok=True)
     env = dict(os.environ, **THREAD_ENV, MPLCONFIGDIR=str(cache), TMPDIR=str(cache),
                PYTHONDONTWRITEBYTECODE="1")
@@ -124,21 +181,46 @@ def measured(command, folder, name, timeout):
         env["DYLD_LIBRARY_PATH"] = str(Path(command[0]).parent / "lib")
     out, err = folder / f"{name}.stdout.log", folder / f"{name}.stderr.log"
     load_before = list(os.getloadavg())
-    started = time.perf_counter(); timed_out = False
+    started = time.perf_counter(); timed_out = False; interrupted = False; terminated = None
     with out.open("w") as stdout, err.open("w") as stderr:
-        process = subprocess.Popen(command, cwd=folder, env=env, stdout=stdout, stderr=stderr, start_new_session=True)
-        while True:
-            pid, status, usage = os.wait4(process.pid, os.WNOHANG)
-            if pid:
-                break
-            if time.perf_counter() - started > timeout:
-                timed_out = True
-                os.killpg(process.pid, signal.SIGKILL)
-                _, status, usage = os.wait4(process.pid, 0)
-                break
-            time.sleep(.002)
-        process.returncode = os.waitstatus_to_exitcode(status)
-    return dict(returncode=process.returncode, timed_out=timed_out, timeout_seconds=timeout,
+        process = subprocess.Popen(command, cwd=folder, env=env, stdout=stdout, stderr=stderr,
+            start_new_session=True, pass_fds=lock_fds)
+        reaped = False
+        try:
+            while True:
+                pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+                if pid:
+                    reaped = True
+                    if control.signum is not None:
+                        interrupted = True
+                        finish_stopped_group(process.pid, control.signum, terminated)
+                    break
+                tick = time.perf_counter()
+                if control.signum is not None and terminated is None:
+                    interrupted = True; terminated = tick
+                    try: os.killpg(process.pid, control.signum)
+                    except ProcessLookupError: pass
+                elif terminated is not None and tick-terminated > 2:
+                    try: os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                elif terminated is None and tick-started > timeout:
+                    timed_out = True
+                    try: os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                    _, status, usage = os.wait4(process.pid, 0)
+                    reaped = True
+                    break
+                time.sleep(.002)
+            process.returncode = os.waitstatus_to_exitcode(status)
+        finally:
+            if not reaped:
+                # An exception in bookkeeping must not orphan this process group.
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                _, status, _ = os.wait4(process.pid, 0)
+                process.returncode = os.waitstatus_to_exitcode(status)
+    return dict(returncode=process.returncode, timed_out=timed_out, interrupted=interrupted,
+        stop_signal=control.signum if interrupted else None, timeout_seconds=timeout,
         wall_seconds=time.perf_counter()-started,
         peak_rss_bytes=int(usage.ru_maxrss)*(1 if sys.platform == "darwin" else 1024),
         cpu_seconds=usage.ru_utime+usage.ru_stime, command=list(map(str, command)),
@@ -307,63 +389,98 @@ def main():
     manifest["original_oracle_files_sha256"] = sha(output/"original_oracle_files.json")
     manifest["runtime_executables"] = {key:dict(path=str(getattr(args,key)),sha256=sha(getattr(args,key))) for key in ("rscript","revbayes","lagrange")}
     write_json(output/"manifest.json",manifest)
+    lock_fds = inherited_pipeline_lock()
+    with ExecutionControl() as control:
+        try:
+            execute_workloads(args, output, manifest, source, native_path, oracle_hashes, control, lock_fds)
+        except BenchmarkInterrupted:
+            raise SystemExit(128+(control.signum or signal.SIGTERM))
+
+
+def execute_workloads(args, output, manifest, source, native_path, oracle_hashes, control, lock_fds):
+    tips, states_list = manifest["tips"], manifest["states"]
     records = []; alignments = {}; order_rng=np.random.default_rng(20261115)
-    for states in states_list:
-        for n_tips in tips:
-            for replicate in range(-1,args.repeats):
-                # Component preflight is per state space; score agreement is
-                # required for each actual tree and repetition as well.
-                if replicate == -1 and states in alignments:
-                    continue
-                folder = output/f"n{n_tips}_s{states}"/("preflight" if replicate == -1 else f"rep{replicate+1}")
-                folder.mkdir(parents=True)
-                areas, maximum = CASES[states]
-                make_inputs(folder,n_tips,areas)
-                spec = dict(tree_file=str(folder/"tree.newick"),geog_file=str(folder/"geography.data"),
-                    workdir=str(folder), oracle_library=str(args.oracle_library), max_range_size=maximum,
-                    areas=areas, states=states, params=manifest["params"], export_components=replicate == -1)
-                write_json(folder/"spec.json",spec)
-                commands = commands_for(args,folder,spec); names=list(commands)
-                order=[names[int(i)] for i in order_rng.permutation(len(names))]
-                execution = {name:measured(commands[name],folder,name,args.timeout) for name in order}
-                successful = [name for name,row in execution.items() if row["returncode"] == 0]
-                errors = {}
-                scores = {}
-                for name in successful:
-                    try:
-                        scores.update(read_scores(folder,states,[name]))
-                    except Exception as exc:
-                        errors[name] = f"{type(exc).__name__}: {exc}"
-                if replicate == -1:
-                    alignments[states] = {}
-                    for name,variant in (("original_biogeobears","original"),("revbayes","revbayes"),("lagrange_ng","lagrange")):
-                        selected = [key for key in (name,f"rust_{variant}") if key in scores]
-                        try:
-                            alignments[states].update(align_components(folder,states,selected))
-                        except Exception as exc:
-                            alignments[states][name] = dict(passed=False,error=f"{type(exc).__name__}: {exc}")
-                comparisons={}
-                for name,variant in (("original_biogeobears","original"),("revbayes","revbayes"),("lagrange_ng","lagrange")):
-                    rust = f"rust_{variant}"
-                    if name not in commands:
+    current = None
+    try:
+        for states in states_list:
+            for n_tips in tips:
+                for replicate in range(-1,args.repeats):
+                    # Component preflight is per state space; score agreement is
+                    # required for each actual tree and repetition as well.
+                    if replicate == -1 and states in alignments:
                         continue
-                    error = abs(scores[name]-scores[rust]) if name in scores and rust in scores else None
-                    aligned = bool(alignments[states].get(name,{}).get("passed",False) and error is not None and error <= 1e-8)
-                    comparisons[name] = dict(rust_reference=rust, maximum_lnL_error=error, scalar_tolerance=1e-8,
-                        alignment_passed=aligned, fresh_process_time_ratio=execution[name]["wall_seconds"]/execution[rust]["wall_seconds"] if aligned and replicate>=0 else None)
-                records.append(dict(tips=n_tips,states=states,replicate=replicate,preflight=replicate==-1,
-                    execution_order=order,
-                    input_sha256={f:sha(folder/f) for f in ("tree.newick","geography.data")},
-                    execution=execution,scores=scores,errors=errors,comparisons=comparisons))
-                write_json(output/"progress.json",dict(records=records,alignments=alignments))
-                print(json.dumps(dict(tips=n_tips,states=states,replicate=replicate,
-                    aligned={k:v["alignment_passed"] for k,v in comparisons.items()},errors=errors)),flush=True)
-    source_stable = all(sha(ROOT/name)==value for name,value in source.items()) and sha(native_path)==manifest["native_sha256"]
-    oracle_stable = all(sha(args.oracle_library/name)==value for name,value in oracle_hashes.items())
-    complete = all(c["alignment_passed"] for row in records for c in row["comparisons"].values()) and source_stable and oracle_stable
-    write_json(output/"results.json",dict(status="completed" if complete else "completed_with_unsupported_or_failed_comparisons",
-        formal=args.mode=="formal", all_declared_comparisons_aligned=complete, source_stable=source_stable,original_oracle_stable=oracle_stable,
-        manifest=manifest,alignments=alignments,records=records))
+                    if control.signum is not None:
+                        raise BenchmarkInterrupted("stopped before the next benchmark cell")
+                    folder = output/f"n{n_tips}_s{states}"/("preflight" if replicate == -1 else f"rep{replicate+1}")
+                    folder.mkdir(parents=True)
+                    areas, maximum = CASES[states]
+                    make_inputs(folder,n_tips,areas)
+                    spec = dict(tree_file=str(folder/"tree.newick"),geog_file=str(folder/"geography.data"),
+                        workdir=str(folder), oracle_library=str(args.oracle_library), max_range_size=maximum,
+                        areas=areas, states=states, params=manifest["params"], export_components=replicate == -1)
+                    write_json(folder/"spec.json",spec)
+                    commands = commands_for(args,folder,spec); names=list(commands)
+                    order=[names[int(i)] for i in order_rng.permutation(len(names))]
+                    execution = {}
+                    current = dict(tips=n_tips, states=states, replicate=replicate,
+                        preflight=replicate == -1, execution_order=order, execution=execution)
+                    for name in order:
+                        if control.signum is not None:
+                            raise BenchmarkInterrupted("stopped before the next measured process")
+                        execution[name] = measured(commands[name],folder,name,args.timeout,control,lock_fds)
+                        write_json(output/"progress.json",dict(status="running",records=records,
+                            alignments=alignments,current_attempt=current))
+                        if control.signum is not None:
+                            raise BenchmarkInterrupted("stopped after retaining the owned process result")
+                    successful = [name for name,row in execution.items() if row["returncode"] == 0]
+                    errors = {}
+                    scores = {}
+                    for name in successful:
+                        try:
+                            scores.update(read_scores(folder,states,[name]))
+                        except Exception as exc:
+                            errors[name] = f"{type(exc).__name__}: {exc}"
+                    if replicate == -1:
+                        alignments[states] = {}
+                        for name,variant in (("original_biogeobears","original"),("revbayes","revbayes"),("lagrange_ng","lagrange")):
+                            selected = [key for key in (name,f"rust_{variant}") if key in scores]
+                            try:
+                                alignments[states].update(align_components(folder,states,selected))
+                            except Exception as exc:
+                                alignments[states][name] = dict(passed=False,error=f"{type(exc).__name__}: {exc}")
+                    comparisons={}
+                    for name,variant in (("original_biogeobears","original"),("revbayes","revbayes"),("lagrange_ng","lagrange")):
+                        rust = f"rust_{variant}"
+                        if name not in commands:
+                            continue
+                        error = abs(scores[name]-scores[rust]) if name in scores and rust in scores else None
+                        aligned = bool(alignments[states].get(name,{}).get("passed",False) and error is not None and error <= 1e-8)
+                        comparisons[name] = dict(rust_reference=rust, maximum_lnL_error=error, scalar_tolerance=1e-8,
+                            alignment_passed=aligned, fresh_process_time_ratio=execution[name]["wall_seconds"]/execution[rust]["wall_seconds"] if aligned and replicate>=0 else None)
+                    records.append(dict(tips=n_tips,states=states,replicate=replicate,preflight=replicate==-1,
+                        execution_order=order,
+                        input_sha256={f:sha(folder/f) for f in ("tree.newick","geography.data")},
+                        execution=execution,scores=scores,errors=errors,comparisons=comparisons))
+                    current = None
+                    write_json(output/"progress.json",dict(status="running",records=records,alignments=alignments))
+                    print(json.dumps(dict(tips=n_tips,states=states,replicate=replicate,
+                        aligned={k:v["alignment_passed"] for k,v in comparisons.items()},errors=errors)),flush=True)
+        if control.signum is not None:
+            raise BenchmarkInterrupted("stopped before final certification")
+        source_stable = all(sha(ROOT/name)==value for name,value in source.items()) and sha(native_path)==manifest["native_sha256"]
+        oracle_stable = all(sha(args.oracle_library/name)==value for name,value in oracle_hashes.items())
+        complete = all(c["alignment_passed"] for row in records for c in row["comparisons"].values()) and source_stable and oracle_stable
+        write_json(output/"results.json",dict(status="completed" if complete else "completed_with_unsupported_or_failed_comparisons",
+            formal=args.mode=="formal", all_declared_comparisons_aligned=complete, source_stable=source_stable,original_oracle_stable=oracle_stable,
+            manifest=manifest,alignments=alignments,records=records))
+    except BaseException as error:
+        retained = dict(status="interrupted" if control.signum is not None else "failed_retained",
+            formal=args.mode == "formal", stop_signal=control.signum,
+            error=type(error).__name__+": "+str(error), manifest=manifest,
+            records=records,alignments=alignments,current_attempt=current)
+        write_json(output/"progress.json",retained)
+        write_json(output/"results.json",retained)
+        raise
 
 
 if __name__ == "__main__":
