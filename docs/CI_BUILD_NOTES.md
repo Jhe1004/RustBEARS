@@ -45,3 +45,28 @@ they do not replace RustBEARS production kernels.
 Relative artifact/source-manifest keys use POSIX `/` separators on every OS.
 This makes budget fingerprints and exported artifact names portable to Windows;
 it does not change absolute runtime paths, numeric results, seeds, or input data.
+
+The c7 Windows R check reached the end of its full `testthat` suite, then failed
+only the new viewer fixture's positive control: unqualified `open` returned 34
+instead of the sentinel's 99 and did not write its marker. The actual executable
+was not recorded, so that status does not identify its source. The subsequent
+real PDF assertions and scientific tests passed, but the separate installed-R
+scripts were skipped after the failed package check. This was not a passing
+Windows job. R documents that Windows `system()` launches commands directly,
+unlike the shell-based Unix interface ([R system documentation](https://stat.ethz.ch/R-manual/R-devel/library/base/html/system.html)).
+
+The fixture now runs a real noninteractive Rscript and clones the two installed
+plotting functions without changing their bodies or arguments. A private child
+environment observes only their `system` boundary and forwards it to an
+absolute-path Rscript sentinel, which writes a marker and exits 99. Each actual
+plotting function first takes a controlled interactive branch, proving that it
+reaches that sentinel. The fixture then restores `base::interactive`, deletes
+both positive-control PDFs, and requires fresh complete PDFs with no viewer
+invocation. Original namespace environments remain unchanged. This tests the
+plotting functions' viewer-call contract, not the operating system's default PDF
+association. All positive-control and output assertions remain strict.
+
+CI installs the package and runs this quick regression with
+`stop_on_failure=TRUE` before the five existing installed-R scripts and full
+`R CMD check`. The complete scientific tests and warning/error gate are retained;
+only their order changes so a process-fixture problem is reported earlier.

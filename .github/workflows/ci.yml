@@ -104,20 +104,21 @@ jobs:
         run: |
           python scripts/sync_r_sources.py --manifest evidence/r-rust-mirror.json
           python -c "from pathlib import Path; assert Path('scripts/legacy_trait_oracle.R').read_bytes() == Path('r_package/RustBEARS/inst/validation/legacy_trait_oracle.R').read_bytes()"
+      - name: Install and exercise both R engines
+        run: |
+          R CMD INSTALL r_package/RustBEARS
+          Rscript -e 'testthat::test_file("r_package/RustBEARS/tests/testthat/test-noninteractive-viewers.R", stop_on_failure=TRUE)'
+          Rscript tests/test_r_edge_contracts.R
+          Rscript tests/test_r_optimizer.R
+          Rscript tests/test_r_v12_contracts.R
+          Rscript tests/test_r_v12_statistics.R
+          Rscript tests/test_r_v12_summaries.R
       - name: Check R source package
         shell: Rscript {0}
         run: |
           dir.create('evidence', showWarnings=FALSE)
           checked <- rcmdcheck::rcmdcheck('r_package/RustBEARS', args=c('--no-manual'), error_on='warning', check_dir='evidence/Rcheck')
           saveRDS(checked, 'evidence/r-check-result.rds')
-      - name: Install and exercise both R engines
-        run: |
-          R CMD INSTALL r_package/RustBEARS
-          Rscript tests/test_r_edge_contracts.R
-          Rscript tests/test_r_optimizer.R
-          Rscript tests/test_r_v12_contracts.R
-          Rscript tests/test_r_v12_statistics.R
-          Rscript tests/test_r_v12_summaries.R
       - uses: actions/upload-artifact@v7
         if: always()
         with:
