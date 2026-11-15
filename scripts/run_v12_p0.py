@@ -60,6 +60,7 @@ def run_group(args):
     tasks=[TaskIdentity('p0_refit','DEC+J',str(args.states),outer_rep=i,role='fit')
            for i in range(args.repetitions)]
     seeds=derive_task_seeds(args.seed,tasks)
+    evaluation_parameters=model.model.resolve()
     def fit_one(index):
         local=make_model(args.states,args.contract)
         start=time.perf_counter()
@@ -68,6 +69,11 @@ def run_group(args):
                     elapsed_sec=time.perf_counter()-start,converged=fit.converged,
                     lnL=fit.lnL,params=fit.params,n_evals=fit.n_evals,message=fit.message)
     with threadpool_limits(limits=1):
+        with model.prepared_likelihood(evaluation_parameters,num_threads=1) as prepared:
+            for _ in range(10):prepared.evaluate()
+            tick=time.perf_counter()
+            evaluation_values=[prepared.evaluate().lnL for _ in range(100)]
+            evaluation_seconds=(time.perf_counter()-tick)/len(evaluation_values)
         start=time.perf_counter()
         if args.workers==1:rows=list(map(fit_one,range(args.repetitions)))
         else:
@@ -82,7 +88,11 @@ def run_group(args):
         repetitions=args.repetitions,maxiter=args.maxiter,wall_sec=elapsed,
         refits_per_sec=args.repetitions/elapsed,peak_rss_bytes=rss,
         median_fit_sec=float(np.median([r['elapsed_sec'] for r in rows])),
+        p90_fit_sec=float(np.quantile([r['elapsed_sec'] for r in rows],.90)),
         p95_fit_sec=float(np.quantile([r['elapsed_sec'] for r in rows],.95)),
+        prepared_evaluation=dict(warmup=10,repetitions=100,seconds_per_evaluation=evaluation_seconds,
+            parameters=evaluation_parameters,lnL=evaluation_values[0],
+            deterministic=bool(np.all(np.asarray(evaluation_values)==evaluation_values[0]))),
         n_converged=sum(r['converged'] for r in rows),rows=rows,
         task_fingerprint=task_fingerprint(source),model_manifest=canonical_manifest(source),
         source_stable=task_fingerprint(source)==task_fingerprint(model_manifest(model)),
@@ -135,11 +145,18 @@ def main():
             for a,c in zip(base,group['rows']) for key in a['params']]
         parity.append(dict(states=states,max_lnL_difference=max(differences),
                            max_parameter_difference=max(parameter_differences)))
+    ratios=[]
+    for states in CASES:
+        a=next((r for r in records if r['states']==states and r['contract']=='tip_survival' and r['workers']==1),None)
+        c=next(r for r in records if r['states']==states and r['contract']=='legacy_unconditioned')
+        if a is not None:
+            ratios.append(dict(states=states,prepared_evaluation_A_over_C=a['prepared_evaluation']['seconds_per_evaluation']/c['prepared_evaluation']['seconds_per_evaluation'],
+                complete_fit_median_A_over_C=a['median_fit_sec']/c['median_fit_sec']))
     write_json(folder/'results.json',dict(status='complete',smoke=args.smoke,
         p0_repetition_requirement_met=not args.smoke and 20<=args.repetitions<=50,
         all_converged=all(r['n_converged']==args.repetitions for r in records),
         scope='One hardware pilot only; formal simulation budgets require both Mac and AMD pilots.',
-        groups=records,worker_parity=parity))
+        groups=records,worker_parity=parity,contract_cost_ratios=ratios))
 
 
 if __name__=='__main__':main()
