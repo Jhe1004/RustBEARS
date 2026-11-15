@@ -132,6 +132,7 @@ class FormalReportingTests(unittest.TestCase):
         with patch('scripts.run_uncertainty_case_study.b.fit_over_trees',return_value='sentinel') as run:
             result=fit_posterior_case('trees','geog',validation.FAMILIES,'summary','tip_survival',2,200,500,Path('/tmp'),2,9)
         self.assertEqual(result,'sentinel')
+        self.assertEqual(run.call_args.kwargs['on_excess_failure'],'conservative_bounds')
         models=run.call_args.kwargs['models']
         self.assertEqual([m.name for m in models],list(validation.FAMILIES))
         for model in models:

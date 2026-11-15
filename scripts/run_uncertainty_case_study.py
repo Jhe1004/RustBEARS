@@ -19,6 +19,7 @@ import rustbears as b
 from rustbears.uncertainty.rng import TaskIdentity, derive_task_seeds
 from rustbears.uncertainty.checkpoint import model_manifest, canonical_manifest
 from scripts.v12_formal_protocol import load_locked_budget, select_budget_job
+from scripts.v12_workflow_timing import WorkflowTimer
 
 
 def dump(path, value):
@@ -67,7 +68,8 @@ def fit_posterior_case(trees,geog,model_names,tree,contract,max_range_size,max_t
     return b.fit_over_trees(trees,geog,models=[case_model_template(name) for name in model_names],
         summary_tree=tree,likelihood_conditioning=contract,max_range_size=max_range_size,
         max_trees=max_trees,bsm_maps_per_tree=maps_per_tree,
-        checkpoint_file=str(directory/'multitree.jsonl'),resume=True,num_threads=workers,seed=seed)
+        checkpoint_file=str(directory/'multitree.jsonl'),resume=True,num_threads=workers,seed=seed,
+        on_excess_failure='conservative_bounds')
 
 
 def fit_record(fit):
@@ -131,6 +133,8 @@ def main():
         model_parameter_bounds={name:{k:[p.min,p.max] for k,p in case_model_template(name).params.items() if p.type=='free'} for name in models},
         selection='Input availability and predefined criteria only; all model outcomes retained',
         original_posterior_required=bool(args.posterior_trees),
+        excess_tree_failure_policy='conservative_bounds',
+        tree_failure_interpretation='Retain all failed trees and explicit unavailable mapping if none complete',
         interpretation='Conditional analysis; historical and normalized contracts are never pooled in AIC weights')
     args.out.mkdir(parents=True,exist_ok=True)
     path=args.out/'manifest.json'
@@ -146,6 +150,11 @@ def main():
         else:
             if (args.out/'results.json').exists():raise ValueError('Formal resume requires original execution-start evidence')
             dump(start_path,dict(budget_sha256=budget_record['sha256'],first_started_utc=datetime.now(timezone.utc).isoformat(),gate2_gate3_verified=True))
+    resumed=(args.out/'results.json').exists()
+    timer=WorkflowTimer(args.out/'workflow_timings.jsonl',mode=args.mode,analysis='d2' if args.posterior_trees else 'd1',
+        case_id=args.case_id,n_tips=tree.tip_count,areas=len(geog.areas),
+        states=len(b.BioGeoBEARS(tree,geog,case_model_template('DEC'),max_range_size=max_range_size).states),
+        workers=args.workers,native_threads=1,resume_requested=resumed)
     report=dict(status='running',formal=manifest['formal'],contracts={})
     tasks=[TaskIdentity('empirical_fit',str(i+1),args.case_id,role=c)
            for c in manifest['likelihood_contracts'] for i in range(len(models))]
@@ -156,8 +165,8 @@ def main():
         fits=[]
         for i,name in enumerate(models):
             seed=seeds[TaskIdentity('empirical_fit',str(i+1),args.case_id,role=contract)]
-            fit=b.BioGeoBEARS(tree,geog,case_model_template(name),likelihood_conditioning=contract,
-                max_range_size=max_range_size).fit(seed=seed,num_threads=1)
+            fit=timer.run('fit',lambda:b.BioGeoBEARS(tree,geog,case_model_template(name),likelihood_conditioning=contract,
+                max_range_size=max_range_size).fit(seed=seed,num_threads=1),model=name,contract=contract,call_workers=1)
             dump(directory/f'initial_fit_{i+1}.json',fit_record(fit))
             if not fit.converged:raise RuntimeError(f'{contract}/{name}: fit did not converge; outcome retained as a failure')
             fits.append(fit)
@@ -165,9 +174,10 @@ def main():
         profiles=[]
         for i,fit in enumerate(fits):
             try:
-                ci=b.profile_ci(fit,n_grid=8 if args.mode=='smoke' else 16,num_threads=args.workers,
+                checkpoint=directory/f'profile_{i+1}.jsonl'
+                ci=timer.run('profile_asymptotic_chi2',lambda:b.profile_ci(fit,n_grid=8 if args.mode=='smoke' else 16,num_threads=args.workers,
                     checkpoint_file=str(directory/f'profile_{i+1}.jsonl'),
-                    resume=(directory/f'profile_{i+1}.jsonl').exists())
+                    resume=checkpoint.exists()),checkpoint=checkpoint,model=fit.model.model.name,contract=contract)
                 ci.to_dataframe().to_csv(directory/f'profile_{i+1}.csv',index=False)
                 for param,interval in ci.intervals.items():interval.profile_curve_df.to_csv(directory/f'profile_{i+1}_{param}_curve.csv',index=False)
                 if ci.updated_fit is not None:fits[i]=ci.updated_fit
@@ -176,29 +186,35 @@ def main():
                 profiles.append(dict(model=fit.model.model.name,status='numerically_uncertified',error=str(error)))
             dump(directory/'profile_status.json',profiles)
         dump(directory/'fitted_parameters.json',[fit_record(f) for f in fits])
-        average=b.model_average(fits,criterion='AICc')
+        average=timer.run('model_average',lambda:b.model_average(fits,criterion='AICc'),contract=contract,
+            n_models=len(fits),scope='aggregation only; initial fits and profiles are timed separately')
         average.weights_df.to_csv(directory/'models.csv',index=False)
         np.savez_compressed(directory/'ancestral_arrays.npz',average_top=average.ancestral_probs_branch_top,
             average_bottom=average.ancestral_probs_branch_bottom,
             **{f'model_{i+1}_top':f.evaluation.ancestral_probs_branch_top for i,f in enumerate(fits)})
         bootstrap=[]
         for pair in range(3):
-            result=b.bootstrap_lrt(fits[pair*2],fits[pair*2+1],n_boot=manifest['n_boot'],
+            checkpoint=directory/f'bootstrap_{pair+1}.jsonl'
+            result=timer.run('bootstrap_lrt',lambda:b.bootstrap_lrt(fits[pair*2],fits[pair*2+1],n_boot=manifest['n_boot'],
                 simulation_conditioning='tip_survival' if contract=='legacy_unconditioned' else 'from_model',
-                checkpoint_file=str(directory/f'bootstrap_{pair+1}.jsonl'),resume=True,
-                num_threads=args.workers,seed=args.seed+pair)
+                checkpoint_file=str(checkpoint),resume=True,
+                num_threads=args.workers,seed=args.seed+pair),checkpoint=checkpoint,contract=contract,
+                null=models[pair*2],alt=models[pair*2+1],n_boot=manifest['n_boot'])
             result.replicates_df.to_csv(directory/f'bootstrap_{pair+1}.csv',index=False)
             bootstrap.append(dict(null=result.null_model,alt=result.alt_model,d_obs=result.d_obs,
                 pval=result.pval_mc_conservative,failure_bounds=result.pval_failure_bounds,
                 mc_ci95=result.pval_mc_ci95,n_failed=result.n_failed))
-        maps=average.run_bsm(num_maps=manifest['bsm_maps'],num_threads=args.workers,seed=args.seed)
+        maps=timer.run('run_bsm',lambda:average.run_bsm(num_maps=manifest['bsm_maps'],num_threads=args.workers,seed=args.seed),
+            contract=contract,planned_maps=manifest['bsm_maps'])
         mapping=write_bsm_outputs(maps,directory)
         report['contracts'][contract]=dict(bootstrap=bootstrap,profiles=profiles,
             precision_target_met=mapping['precision_target_met'],single_tree_mapping=mapping)
         dump(args.out/'results.json',report)
         if args.posterior_trees:
-            multi=fit_posterior_case(args.posterior_trees,geog,models,tree,contract,max_range_size,
-                manifest['max_trees'],manifest['bsm_maps_per_tree'],directory,args.workers,args.seed)
+            multi=timer.run('fit_over_trees',lambda:fit_posterior_case(args.posterior_trees,geog,models,tree,contract,max_range_size,
+                manifest['max_trees'],manifest['bsm_maps_per_tree'],directory,args.workers,args.seed),
+                checkpoint=directory/'multitree.jsonl',contract=contract,planned_trees=manifest['max_trees'],
+                maps_per_tree=manifest['bsm_maps_per_tree'],scope='all geographic fits, cold audits and joint maps')
             multi.to_dataframe().to_csv(directory/'multitree_probability_bounds.csv',index=False)
             multi.per_tree_df.to_csv(directory/'per_tree_models.csv',index=False)
             multi.param_tree_sensitivity_df.to_csv(directory/'tree_parameter_sensitivity.csv',index=False)

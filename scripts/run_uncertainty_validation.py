@@ -20,6 +20,7 @@ from rustbears.uncertainty.checkpoint import CheckpointStore,model_manifest,task
 from rustbears.uncertainty.guards import clone_model
 from rustbears.uncertainty.rng import TaskIdentity,derive_task_seeds
 from scripts.v12_formal_protocol import load_locked_budget,select_budget_job
+from scripts.v12_workflow_timing import WorkflowTimer
 
 FAMILIES=("DEC","DEC+J","DIVALIKE","DIVALIKE+J","BAYAREALIKE","BAYAREALIKE+J")
 
@@ -300,6 +301,9 @@ def main():
             if (args.output/"outer_records.jsonl").exists():raise ValueError("formal resume requires its original execution-start evidence")
             started_path.write_text(json.dumps(started,indent=2)+"\n")
     store=CheckpointStore(args.output/"outer_records.jsonl",config,resume=args.resume)
+    timer=WorkflowTimer(args.output/'workflow_timings.jsonl',mode=args.mode,analysis=args.analysis,
+        scenario=args.scenario,n_tips=tips,areas=areas,states=len(base.states),workers=args.workers,
+        native_threads=1,resume_requested=args.resume)
     roles=["simulate","profile","A","C","C_to_A"]+[
         "fit_"+family+"_"+contract for family in FAMILIES for contract in ("tip_survival","legacy_unconditioned")]
     rng_scenario={"higher_jump":"dominant","lower_jump":"ambiguous"}.get(args.scenario,args.scenario)
@@ -316,16 +320,20 @@ def main():
                      rng={role:dict(identity=identities[(rep,role)].to_dict(),seed=seeds[identities[(rep,role)]]) for role in roles})
             def fit_family(family,contract="tip_survival"):
                 model=clone_model(base,geog=data,model_object=template(family),likelihood_conditioning=contract)
-                return model.fit(**config["fit_options"],seed=np.random.default_rng(seeds[identities[(rep,"fit_"+family+"_"+contract)]]))
+                return timer.run('fit',lambda:model.fit(**config["fit_options"],
+                    seed=np.random.default_rng(seeds[identities[(rep,"fit_"+family+"_"+contract)]])),
+                    replicate=rep,model=family,contract=contract,call_workers=1)
             try:
                 if args.analysis=="v1":
                     fit=fit_family("DEC+J")
                     for method in ("asymptotic_chi2","bootstrap_plugin"):
                         try:
-                            result=b.profile_ci(fit,params=["d","e","j"],method=method,n_boot_plugin=plugin,
+                            checkpoint=args.output/f"profile-{rep}-{method}.jsonl"
+                            result=timer.run('profile_'+method,lambda:b.profile_ci(fit,params=["d","e","j"],method=method,n_boot_plugin=plugin,
                                 include_onesided_zero_ref=True,n_grid=config["profile_grid"],num_threads=args.workers,
                                 seed=seeds[identities[(rep,"profile")]],fit_options=config["fit_options"],
-                                checkpoint_file=args.output/f"profile-{rep}-{method}.jsonl",resume=args.resume)
+                                checkpoint_file=checkpoint,resume=args.resume),checkpoint=checkpoint,
+                                replicate=rep,params=['d','e','j'],plugin_bootstrap=plugin)
                             final_fit=result.updated_fit or fit
                             row.setdefault("profile_fits",{})[method]=dict(params=final_fit.params,lnL=final_fit.lnL,
                                 rebased_mle=result.rebased_mle,interval_kind=result.interval_kind)
@@ -340,9 +348,11 @@ def main():
                     routes=(("A",null_a,alt_a,{}),("C",null_c,alt_c,dict(simulation_conditioning="tip_survival")),
                             ("C_to_A",null_c,alt_c,dict(target_conditioning="tip_survival",refit_observed=True)))
                     for route,nf,af,options in routes:
-                        result=b.bootstrap_lrt(nf,af,n_boot=inner,calc_surrogate_power=alt_count>0,n_alt_sim=alt_count,
+                        checkpoint=args.output/f"lrt-{rep}-{route}.jsonl"
+                        result=timer.run('bootstrap_lrt',lambda:b.bootstrap_lrt(nf,af,n_boot=inner,calc_surrogate_power=alt_count>0,n_alt_sim=alt_count,
                             num_threads=args.workers,seed=seeds[identities[(rep,route)]],fit_options=config["fit_options"],
-                            checkpoint_file=args.output/f"lrt-{rep}-{route}.jsonl",resume=args.resume,**options)
+                            checkpoint_file=checkpoint,resume=args.resume,**options),checkpoint=checkpoint,
+                            replicate=rep,route=route,n_boot=inner,n_alt_sim=alt_count)
                         summary=dict(p_conservative=result.pval_mc_conservative,reject=result.pval_mc_conservative<=.05,
                             p_failure_bounds=result.pval_failure_bounds,p_mc_ci95=result.pval_mc_ci95,n_failed=result.n_failed,
                             d_obs=result.d_obs,asymptotic_p_nominal=result.pval_asymptotic,
@@ -359,7 +369,8 @@ def main():
                         row["outputs"][route]=summary
                 else:
                     fits=[fit_family(family) for family in FAMILIES]
-                    average=b.model_average(fits,criterion="AICc")
+                    average=timer.run('model_average',lambda:b.model_average(fits,criterion="AICc"),
+                        replicate=rep,n_models=len(fits),scope='aggregation only; six model fits have separate fit records')
                     best=fits[int(np.argmin([fit.aicc for fit in fits]))]
                     internal=np.arange(base.tree.tip_count,len(base.tree.labels))
                     true=batch.node_states[0,internal]
