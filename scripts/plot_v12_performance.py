@@ -27,13 +27,32 @@ CONTRACT = dict(figure='1', backend='python', final_size_mm=[180, 225], minimum_
     selection='All formal external benchmark cells. Main c uses the separately locked 16/64/256-state six-workflow cost benchmark. Actual calibration/case workflow timings and P0 are supplementary only.',
     uncertainty='Raw timing attempts; repeated attempts are not independent datasets. No pooled confidence interval across tree sizes, hosts or workers.',
     scope='Dedicated 16/64/256-state full-workflow protocol implemented; formal data and rendering pending. Calibration/case costs do not substitute for this grid. Peak RSS is the whole fresh process measured by wait4, including interpreter/runtime, not kernel allocation. No standard-DEC comparison for Lagrange-ng: two-area v=2 stratum only. No optimizer speedup from fixed-likelihood timings.',
-    legends=dict(b='one bounded panel header shared by both axes: software color; host marker; unavailable/failed status markers; tips and repeats retained by horizontal offsets and source rows', c='range-state color; reserved-CPU marker; counts show unique tasks observed/planned'),
-    missingness='N=0 remains NA; failed calls and partial checkpoint resumes cannot become full-cost points. Returned calls with retained inner failures are marked.',
+    legends=dict(b='one bounded panel header shared by both axes: software color; host marker; unavailable/failed status markers; tips and repeats retained by horizontal offsets and source rows', c='locked range-state color and reserved-CPU marker; wholly missing planned strata remain in the legend; counts show unique tasks observed/planned'),
+    missingness='N=0 remains NA; failed calls and partial checkpoint resumes cannot become full-cost points. Returned bootstrap/tree calls with retained replicate/tree failures are marked. Profile box censoring, disconnected support and missing Hessian SE remain distinct source-table diagnostics, not numerical failures.',
     raster_dpi=600,
     outputs=['figure1.pdf', 'figure1.svg', 'figure1.png', 'figure1.tiff', 'source_data', 'source_inventory', 'caption', 'QA'])
 
 BENCHMARK_COLORS={'original_biogeobears':'#257C87','revbayes':'#A56529','lagrange_ng':'#767676'}
 BENCHMARK_NAMES={'original_biogeobears':'BioGeoBEARS','revbayes':'RevBayes','lagrange_ng':'Lagrange-ng (v=2)'}
+
+
+def workflow_legend_spec(costs):
+    """Keep encodings fixed by the locked design, never by surviving points."""
+    states=costs['settings']['states'];workers=costs['settings']['workers']
+    palette=['#257C87','#A56529','#767676','#7C568D'];symbols=['o','s','^','D']
+    if not states or not workers or len(set(states))!=len(states) or len(set(workers))!=len(workers):
+        raise ValueError('workflow legend requires unique planned states and workers')
+    if len(states)>len(palette) or len(workers)>len(symbols):raise ValueError('new timing strata require a prospective legend revision')
+    if any(p['states'] not in states or p['workers'] not in workers for p in costs['points']):raise ValueError('unplanned cost point in workflow legend')
+    counts=costs['stratum_counts']
+    def label(field,value,text):
+        selected=[r for r in counts if r[field]==value]
+        planned=sum(r['planned_tasks'] for r in selected);observed=sum(r['unique_tasks_observed'] for r in selected)
+        if planned<=0:raise ValueError('planned legend stratum lacks its denominator')
+        return text+(f' (0/{planned})' if observed==0 else '')
+    return dict(state_colors=dict(zip(states,palette)),cpu_markers=dict(zip(workers,symbols)),
+        state_labels={s:label('states',s,f'{s} states') for s in states},
+        cpu_labels={w:label('workers',w,f'{w} CPUs reserved') for w in workers})
 
 
 def workflow(ax):
@@ -235,10 +254,9 @@ def main():
         mappings=['software color','host marker','non-numeric status markers']),
         c=dict(owner='panel c',position='local header',mappings=['state color','reserved-CPU marker'])))
     axc=fig.add_axes([.31,.075,.63,.24])
-    state_values=sorted({r['states'] for r in costs['points']});cpu_values=sorted({r['workers'] for r in costs['points']})
-    palette=['#257C87','#A56529','#767676','#7C568D'];symbols=['o','s','^','D']
-    if len(state_values)>len(palette) or len(cpu_values)>len(symbols):raise ValueError('new timing strata require a prospective legend revision')
-    state_colors=dict(zip(state_values,palette));cpu_markers=dict(zip(cpu_values,symbols));labels=[]
+    legend=workflow_legend_spec(costs)
+    state_colors=legend['state_colors'];cpu_markers=legend['cpu_markers'];labels=[]
+    write_json(args.output/'workflow_legend.json',legend)
     order=costs.get('workload_order',WORKLOADS);cost_labels=costs.get('workload_labels',LABELS)
     for i,(category,label) in enumerate(zip(order,cost_labels)):
         chosen=[r for r in costs['points'] if r['workload']==category];counts=costs['category_counts'][category]
@@ -250,14 +268,14 @@ def main():
     axc.set_xscale('log');axc.set_ylim(5.5,-.5);axc.set_yticks(range(6),labels)
     axc.xaxis.set_major_formatter(plt.FuncFormatter(lambda value,_:format(value,'g')))
     axc.set_xlabel('API workflow wall time (s)')
-    handles=[Line2D([],[],color=color,marker='o',linestyle='',label=f'{state} states',markersize=4) for state,color in state_colors.items()]
-    handles += [Line2D([],[],color='black',marker=marker,linestyle='',label=f'{cpu} CPUs reserved',markersize=4) for cpu,marker in cpu_markers.items()]
-    if any(r.get('n_failed',0) or r.get('n_trees_incomplete',0) for r in costs['points']):handles.append(Line2D([],[],color='black',marker='x',linestyle='',label='Inner failures',markersize=4))
+    handles=[Line2D([],[],color=color,marker='o',linestyle='',label=legend['state_labels'][state],markersize=4) for state,color in state_colors.items()]
+    handles += [Line2D([],[],color='black',marker=marker,linestyle='',label=legend['cpu_labels'][cpu],markersize=4) for cpu,marker in cpu_markers.items()]
+    if any(r.get('n_failed',0) or r.get('n_trees_incomplete',0) for r in costs['points']):handles.append(Line2D([],[],color='black',marker='x',linestyle='',label='Bootstrap/tree failures',markersize=4))
     if handles:axc.legend(handles=handles,loc='lower left',bbox_to_anchor=(-.22,1.03),frameon=False,ncol=3,columnspacing=.8,handletextpad=.3)
     fig.text(.025,.355,'c)',fontweight='bold',fontsize=10)
     audit_alignment(fig,args.output,'figure1',args.audit_scripts)
     save_figure(fig,args.output,'figure1');plt.close(fig)
-    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Left, time; right, peak RSS. Each point is a matched external/Rust ratio for whole fresh-process wall time or peak resident memory (RSS), respectively. Both measurements include interpreter/runtime startup, imports, construction and one fixed likelihood evaluation; neither establishes optimizer speedup or kernel-allocation efficiency. Peak RSS is measured separately for each process using wait4. All registered tips, states, hosts and repeats are retained; horizontal offsets separate software, host, tip count and repeat. Lagrange-ng is restricted to the two-area v=2 stratum. The shared header owns both axes. A missing or zero RSS yields an unavailable ratio, never a zero-memory value. Timeout, failed/unaligned and unavailable marks appear in a non-numeric strip below each axis; they do not encode a numeric ratio. Counts retain every planned comparison, and RSS-unavailable counts may overlap failures. Raw seconds, bytes, return codes and timeout flags remain in the source table. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the dedicated LRT includes the registered null replicates without surrogate power. Six-model costs include every initial fit and averaging within the same phase. Branch-scaled tree copies define a computational workload, not a posterior sample; map and tree budgets are displayed on the axes. Crosses mark retained inner failures. Colors identify range states and symbols reserved CPUs, not measured CPU utilization. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the locked state/worker grid and repetitions under tip-survival conditioning; no pooled mean, confidence interval or suite elapsed time is inferred. Partial or timed-out phases have no full-cost point. Actual calibration/case costs and P0 fits are supplementary evidence.\n')
+    (args.output/'caption.md').write_text('Figure 1. Analysis flow and measured computational workloads. (a) The probability convention travels with each analysis. (b) Left, time; right, peak RSS. Each point is a matched external/Rust ratio for whole fresh-process wall time or peak resident memory (RSS), respectively. Both measurements include interpreter/runtime startup, imports, construction and one fixed likelihood evaluation; neither establishes optimizer speedup or kernel-allocation efficiency. Peak RSS is measured separately for each process using wait4. All registered tips, states, hosts and repeats are retained; horizontal offsets separate software, host, tip count and repeat. Lagrange-ng is restricted to the two-area v=2 stratum. The shared header owns both axes. A missing or zero RSS yields an unavailable ratio, never a zero-memory value. Timeout, failed/unaligned and unavailable marks appear in a non-numeric strip below each axis; they do not encode a numeric ratio. Counts retain every planned comparison, and RSS-unavailable counts may overlap failures. Raw seconds, bytes, return codes and timeout flags remain in the source table. (c) All fresh complete API attempts for the predeclared workflows. Profiles include d, e and j together; the dedicated LRT includes the registered null replicates without surrogate power. Six-model costs include every initial fit and averaging within the same phase. Branch-scaled tree copies define a computational workload, not a posterior sample; map and tree budgets are displayed on the axes. Crosses mark retained bootstrap-replicate or tree failures. A returned profile API is distinct from a numerical certification failure: box-censored endpoints, disconnected support, and unavailable Hessian standard errors are preserved separately in the source tables, without reclassifying them as failed calls. Colors identify all locked range-state levels and symbols all reserved-CPU levels, including wholly missing levels labelled 0/N; they do not encode measured CPU utilization. Per-workflow/state/worker observed and planned counts remain in the source table. Counts are unique tasks with a full-cost observation divided by planned tasks; attempts can repeat after interruption. Timing includes internal checkpoint I/O and excludes later table exports. Partial resumes, raised calls, missing observations and every unplotted phase are retained, without imputation. Points span the locked state/worker grid and repetitions under tip-survival conditioning; no pooled mean, confidence interval or suite elapsed time is inferred. Partial or timed-out phases have no full-cost point. Actual calibration/case costs and P0 fits are supplementary evidence.\n')
     write_json(args.output/'script_binding.json',{'sha256':sha(__file__),'helper_sha256':sha(Path(__file__).with_name('v12_figure_utils.py')),'workflow_reader_sha256':sha(Path(__file__).with_name('v12_workflow_costs.py'))})
 
 

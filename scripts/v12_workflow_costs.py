@@ -262,12 +262,98 @@ def export_costs(audit,folder):
     if audit.get('status')!='eligible_formal_workflow_costs' or audit.get('formal') is not True:raise ValueError('formal eligibility required')
     for key,name in (('rows','workflow_all_attempts.jsonl'),('points','workflow_complete_costs.jsonl'),('jobs','workflow_job_denominators.jsonl'),('cost_tasks','workflow_cost_task_denominators.jsonl')):
         (folder/name).write_text(''.join(json.dumps(r,sort_keys=True,ensure_ascii=False,allow_nan=False)+'\n' for r in audit[key]))
-    columns=['workload','job_id','analysis','scenario','case_id','replicate','invocation','host','n_tips','areas','states','workers','contract','route','plugin_bootstrap','n_boot','n_alt_sim','wall_seconds','process_cpu_seconds','n_failed','n_trees_incomplete','component_count','component_row_ids']
+    columns=['workload','job_id','task_id','row_id','analysis','scenario','case_id','replicate','invocation','host','n_tips','areas','states','workers','contract','route','plugin_bootstrap','n_boot','n_alt_sim','status','process_status','wall_seconds','process_cpu_seconds','n_failed','n_trees_incomplete','profile_endpoint_diagnostics','profile_rebased_mle','profile_box_censored_endpoints','profile_disconnected_parameters','profile_missing_se_parameters','profile_artifacts','component_count','component_row_ids']
     with (folder/'workflow_complete_costs.csv').open('w',newline='') as stream:
         writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
         for point in audit['points']:
             writer.writerow({k:json.dumps(point[k]) if isinstance(point.get(k),(list,dict)) else point.get(k) for k in columns})
+    if 'stratum_counts' in audit:
+        with (folder/'workflow_stratum_counts.csv').open('w',newline='') as stream:
+            writer=csv.DictWriter(stream,fieldnames=['workload','states','workers','unique_tasks_observed','planned_tasks','full_attempts','unavailable_tasks'])
+            writer.writeheader();writer.writerows(audit['stratum_counts'])
+        with (folder/'workflow_profile_diagnostics.csv').open('w',newline='') as stream:
+            columns=['task_id','row_id','workload','states','workers','replicate','status','process_status','api_complete_fresh','profile_rebased_mle','param','interval_kind','mle','lower','upper','status_lower','status_upper','onesided_upper_from_zero','critical_value','disconnected_support_detected','endpoint_deviance_residual_max','se_hessian_local','se_hessian_missing']
+            writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
+            for row in audit['rows']:
+                for diagnostic in row.get('profile_endpoint_diagnostics',[]):
+                    values=dict(row,**diagnostic)
+                    writer.writerow({k:values.get(k) for k in columns})
     (folder/'workflow_input_audit.json').write_text(json.dumps({k:v for k,v in audit.items() if k not in ('rows','points')},indent=2,ensure_ascii=False)+'\n')
+
+
+def profile_cost_diagnostics(directory,evidence_files,api_status):
+    """Read returned-profile diagnostics only from the already checked artifacts.
+
+    Box censoring, disconnected support and an unavailable Hessian SE do not
+    turn an observed API duration into a numerical failure. In this producer,
+    numerical certification failures raise instead of returning an interval.
+    """
+    if api_status!='returned':raise ValueError('profile diagnostics require a returned API call')
+    directory=Path(directory);artifacts={}
+    for name in ('intervals.csv','profile_result.json'):
+        path=directory/name;digest=evidence_files.get(str(path))
+        if digest is None or sha(path)!=digest:raise ValueError('profile diagnostic artifact is not hash-bound: '+name)
+        artifacts[str(path)]=digest
+    with (directory/'intervals.csv').open(newline='') as stream:intervals=list(csv.DictReader(stream))
+    if len(intervals)!=3 or {r['param'] for r in intervals}!={'d','e','j'}:raise ValueError('profile diagnostics omit a parameter')
+    result=read_json(directory/'profile_result.json')
+    if type(result.get('rebased_mle')) is not bool:raise ValueError('profile rebase diagnostic must be boolean')
+    def number(value,nullable=False):
+        if nullable and value=='':return None
+        try:parsed=float(value)
+        except (ValueError,TypeError):raise ValueError('invalid profile diagnostic number') from None
+        if not math.isfinite(parsed):raise ValueError('nonfinite profile diagnostic number')
+        return parsed
+    diagnostics=[]
+    for record in sorted(intervals,key=lambda r:('d','e','j').index(r['param'])):
+        diagnostic={'param':record['param'],'interval_kind':record['interval_kind'],'mle':number(record['mle']),
+            'onesided_upper_from_zero':number(record['onesided_upper_from_zero'],nullable=True),
+            'critical_value':number(record['critical_value'])}
+        for side in ('lower','upper'):
+            status=record['status_'+side]
+            if status not in ('interior_bracketed','infeasible_zero_approached','at_physical_zero','censored_at_box_'+side):
+                raise ValueError('unknown or uncertified returned-profile endpoint status: '+status)
+            value=number(record[side],nullable=True)
+            if (value is None)!=(status=='censored_at_box_'+side):raise ValueError('profile endpoint/status mismatch')
+            diagnostic.update({side:value,'status_'+side:status})
+        if record['disconnected_support_detected'] not in ('True','False'):raise ValueError('invalid disconnected-support flag')
+        diagnostic['disconnected_support_detected']=record['disconnected_support_detected']=='True'
+        diagnostic['endpoint_deviance_residual_max']=number(record['endpoint_deviance_residual_max'])
+        if diagnostic['endpoint_deviance_residual_max']<0:raise ValueError('negative profile endpoint residual')
+        diagnostic['se_hessian_local']=number(record['se_hessian_local'],nullable=True)
+        if diagnostic['se_hessian_local'] is not None and diagnostic['se_hessian_local']<=0:raise ValueError('invalid Hessian SE')
+        diagnostic['se_hessian_missing']=diagnostic['se_hessian_local'] is None
+        diagnostics.append(diagnostic)
+    return dict(profile_endpoint_diagnostics=diagnostics,profile_rebased_mle=result['rebased_mle'],
+        profile_box_censored_endpoints=sum(r['status_'+side]=='censored_at_box_'+side for r in diagnostics for side in ('lower','upper')),
+        profile_disconnected_parameters=sum(r['disconnected_support_detected'] for r in diagnostics),
+        profile_missing_se_parameters=sum(r['se_hessian_missing'] for r in diagnostics),profile_artifacts=artifacts)
+
+
+def dedicated_stratum_counts(settings,tasks,points,workloads):
+    """Count unique planned tasks on the locked grid, including wholly absent strata."""
+    expected={(phase,state,workers,rep) for phase in workloads for state in settings['states']
+              for workers in settings['workers'] for rep in range(1,settings['repeats']+1)}
+    keys=[(r['workload'],r['states'],r['workers'],r['replicate']) for r in tasks]
+    task_by_id={r['task_id']:r for r in tasks}
+    if len(keys)!=len(expected) or set(keys)!=expected or len(task_by_id)!=len(tasks):raise ValueError('incomplete or duplicate planned cost strata')
+    attempts=defaultdict(int)
+    for point in points:
+        task=task_by_id.get(point['task_id'])
+        if task is None or any(point[k]!=task[k] for k in ('workload','states','workers','replicate')):
+            raise ValueError('cost point is outside its planned stratum')
+        attempts[point['task_id']]+=1
+    if any(r['full_cost_attempts']!=attempts[r['task_id']] for r in tasks):raise ValueError('task cost-attempt count disagrees with observations')
+    rows=[]
+    for phase in workloads:
+        for state in settings['states']:
+            for workers in settings['workers']:
+                selected=[r for r in tasks if (r['workload'],r['states'],r['workers'])==(phase,state,workers)]
+                observed=sum(attempts[r['task_id']]>0 for r in selected)
+                rows.append(dict(workload=phase,states=state,workers=workers,unique_tasks_observed=observed,
+                    planned_tasks=len(selected),full_attempts=sum(attempts[r['task_id']] for r in selected),
+                    unavailable_tasks=len(selected)-observed))
+    return rows
 
 
 def inspect_dedicated_benchmark(inventory_path):
@@ -367,6 +453,8 @@ def inspect_dedicated_benchmark(inventory_path):
                             source_path=str(timing),source_line=1,process_status=attempt['status'],api_complete_fresh=fresh,
                             classification='complete_fresh' if fresh else 'partial_resume' if before else attempt['status'],
                             process_wall_seconds=attempt['process_wall_seconds'],process_peak_rss_bytes=attempt['process_peak_rss_bytes'])
+                        if complete_attempt and phase.startswith('profile_'):
+                            row.update(profile_cost_diagnostics(directory,actual,timing_row['status']))
                         rows.append(row)
                         if fresh:
                             verify_dedicated_phase(directory,cell_dir/phase,phase,settings,timing_row)
@@ -378,13 +466,14 @@ def inspect_dedicated_benchmark(inventory_path):
                             areas=cell['areas'],replicate=cell['replicate'],n_tips=settings['n_tips'],api_complete_fresh=False,
                             classification='unavailable_terminal_API_timing',wall_seconds=None,
                             process_wall_seconds=attempt['process_wall_seconds'],api_right_censored_elapsed_seconds=attempt['api_right_censored_elapsed_seconds']))
-            tasks.append(dict(job_id=cell['id'],task_id=task_id,workload=phase,full_cost_attempts=available,
+            tasks.append(dict(job_id=cell['id'],task_id=task_id,workload=phase,states=cell['states'],workers=cell['workers'],replicate=cell['replicate'],full_cost_attempts=available,
                 status='full_cost_observed' if available else 'unavailable_full_cost',scientific_process_status=record['status']))
     order=('profile_chi2','profile_plugin','bootstrap_lrt','six_model_average','run_bsm','fit_over_trees')
     labels=['χ² profiles: d, e, j',f'Plug-in profiles: B={settings["n_boot_plugin"]}',f'LRT: B={settings["n_boot"]}',
         'Six models + average',f'{settings["bsm_maps"]} single-tree maps',f'{settings["n_trees"]} trees × {settings["maps_per_tree"]} maps']
     return dict(status='eligible_formal_workflow_costs',formal=True,source_files=files,budget_sha256=sha(budget_path),rows=rows,points=points,
         jobs=records,cost_tasks=tasks,workload_order=order,workload_labels=labels,settings=settings,protocol='dedicated_computational_workloads',
+        stratum_counts=dedicated_stratum_counts(settings,tasks,points,order),
         full_proposal_grid=plan['full_proposal_grid'],category_counts={p:dict(full_attempts=sum(x['workload']==p for x in points),
             unique_tasks_observed=sum(x['workload']==p and x['status']=='full_cost_observed' for x in tasks),
             planned_tasks=sum(x['workload']==p for x in tasks)) for p in order})
