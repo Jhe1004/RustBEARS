@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import rustbears as b
 from rustbears.uncertainty.rng import TaskIdentity, derive_task_seeds
+from rustbears.uncertainty.checkpoint import model_manifest, canonical_manifest
+from scripts.v12_formal_protocol import load_locked_budget, select_budget_job
 
 
 def dump(path, value):
@@ -42,6 +44,32 @@ def case_model_template(name):
     return template.with_parameters(**changes)
 
 
+def write_bsm_outputs(maps,directory,prefix=""):
+    """Export complete events, design metadata and explicitly fixed-sample diagnostics."""
+    if maps is None:return dict(status="no_complete_tree_maps",precision_target_met=False)
+    maps.clado_events_df.to_csv(directory/(prefix+'cladogenetic_events.csv'),index=False)
+    maps.ana_events_df.to_csv(directory/(prefix+'anagenetic_events.csv'),index=False)
+    maps.map_metadata.to_csv(directory/(prefix+'map_metadata.csv'),index=False)
+    diag=b.bsm_diagnostics(maps,tree_target='fixed_sample')
+    for suffix,frame in [('event_precision',diag.event_summary_df),('route_precision',diag.route_summary_df),
+                         ('route_comparisons',diag.route_rank_comparisons_df),('event_through_time',diag.ett_df)]:
+        frame.to_csv(directory/(prefix+suffix+'.csv'),index=False)
+    result=dict(status='complete',maps=maps.num_maps,tree_target='fixed_sample',
+        summary_scope=getattr(maps,'summary_scope','all_planned_strata'),
+        n_trees_missing=getattr(maps,'n_trees_missing',0),precision_target_met=diag.precision_target_met,
+        interpretation='Conditional finite tree/model collection; event-count missingness has no bounded-probability guarantee.')
+    dump(directory/(prefix+'bsm_summary.json'),result)
+    return result
+
+
+def fit_posterior_case(trees,geog,model_names,tree,contract,max_range_size,max_trees,maps_per_tree,directory,workers,seed):
+    """Use exactly the physical-zero family definitions used on the reference tree."""
+    return b.fit_over_trees(trees,geog,models=[case_model_template(name) for name in model_names],
+        summary_tree=tree,likelihood_conditioning=contract,max_range_size=max_range_size,
+        max_trees=max_trees,bsm_maps_per_tree=maps_per_tree,
+        checkpoint_file=str(directory/'multitree.jsonl'),resume=True,num_threads=workers,seed=seed)
+
+
 def fit_record(fit):
     return dict(model=fit.model.model.name,lnL=fit.lnL,params=fit.params,
         converged=fit.converged,message=fit.message,
@@ -60,6 +88,7 @@ def main():
     parser.add_argument('--mode',choices=['smoke','formal'],default='smoke')
     parser.add_argument('--execute',action='store_true')
     parser.add_argument('--gate-evidence',type=Path)
+    parser.add_argument('--budget-json',type=Path)
     parser.add_argument('--workers',type=int,default=1)
     parser.add_argument('--seed',type=int,default=20261115)
     args=parser.parse_args()
@@ -70,17 +99,36 @@ def main():
     hashes={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in
         [('tree',args.tree),('geography',args.geog)]+([('posterior_trees',args.posterior_trees)] if args.posterior_trees else [])}
     models=['DEC','DEC+J','DIVALIKE','DIVALIKE+J','BAYAREALIKE','BAYAREALIKE+J']
-    if args.mode=='formal':
-        if args.gate_evidence is None:raise SystemExit('Formal workflow requires actual Gate 2/3 evidence, not a CI configuration.')
-        gate=json.loads(args.gate_evidence.read_text())
-        if not gate.get('gate2_passed') or not gate.get('gate3_passed'):raise SystemExit('Gate 2 and Gate 3 must both be passed.')
+    settings=dict(n_boot=399,bsm_maps=5000,max_trees=200,bsm_maps_per_tree=500)
+    budget_record=None
+    if args.mode=='smoke':
+        if args.budget_json is not None:raise ValueError('Formal budgets cannot relabel smoke results')
+        settings=dict(n_boot=3,bsm_maps=40,max_trees=3,bsm_maps_per_tree=40)
+    elif args.budget_json is not None:
+        budget,budget_record=load_locked_budget(args.budget_json,source_script=__file__,execute=args.execute)
+        job=select_budget_job(budget,analysis='d2' if args.posterior_trees else 'd1',case_id=args.case_id)
+        if job.get('seed')!=args.seed:raise ValueError('Seed differs from the locked budget')
+        for name in settings:
+            value=job.get(name)
+            if isinstance(value,bool) or not isinstance(value,int) or value<1:raise ValueError('Invalid budget field '+name)
+            settings[name]=value
+        if args.gate_evidence is not None and hashlib.sha256(args.gate_evidence.read_bytes()).hexdigest()!=budget['gate_evidence']['sha256']:
+            raise ValueError('Explicit gate evidence disagrees with locked budget')
+    elif args.execute:
+        raise ValueError('Formal execution requires --budget-json with matching Gate 2/3 evidence')
+    formal_full=settings==dict(n_boot=399,bsm_maps=5000,max_trees=200,bsm_maps_per_tree=500)
     manifest=dict(case_id=args.case_id,software=b.__version__,mode=args.mode,formal=args.mode=='formal',
         input_sha256=hashes,tip_count=tree.tip_count,areas=list(geog.areas),models=models,
         likelihood_contracts=['tip_survival','legacy_unconditioned'],root_prior='uniform_nonnull',
         historical_root_weights='legacy_flat_weights',max_range_size=max_range_size,criterion='AICc',
         parameter_domain='Common d/e and free j lower bounds are physical zero, before all fits',
-        n_boot=399 if args.mode=='formal' else 3,bsm_maps=5000 if args.mode=='formal' else 40,
-        max_trees=200 if args.mode=='formal' else 3,seed=args.seed,workers=args.workers,
+        **settings,seed=args.seed,workers=args.workers,locked_budget=budget_record,
+        protocol_scope='workflow_smoke' if args.mode=='smoke' else 'full_proposal_case' if formal_full else 'prospectively_amended_formal_case',
+        workflow_script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        source_sha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((ROOT/'rustbears').rglob('*.py'))},
+        resolved_reference_model=canonical_manifest(model_manifest(b.BioGeoBEARS(tree,geog,case_model_template('DEC'),
+            likelihood_conditioning='tip_survival',max_range_size=max_range_size))),
+        model_parameter_bounds={name:{k:[p.min,p.max] for k,p in case_model_template(name).params.items() if p.type=='free'} for name in models},
         selection='Input availability and predefined criteria only; all model outcomes retained',
         original_posterior_required=bool(args.posterior_trees),
         interpretation='Conditional analysis; historical and normalized contracts are never pooled in AIC weights')
@@ -89,6 +137,15 @@ def main():
     if path.exists() and json.loads(path.read_text())!=manifest:raise SystemExit('Input or workflow changed; use a new output directory.')
     dump(path,manifest)
     if not args.execute:return
+    if args.mode=='formal':
+        from datetime import datetime, timezone
+        start_path=args.out/'execution_started.json'
+        if start_path.exists():
+            previous=json.loads(start_path.read_text())
+            if previous['budget_sha256']!=budget_record['sha256']:raise ValueError('Execution began under a different budget')
+        else:
+            if (args.out/'results.json').exists():raise ValueError('Formal resume requires original execution-start evidence')
+            dump(start_path,dict(budget_sha256=budget_record['sha256'],first_started_utc=datetime.now(timezone.utc).isoformat(),gate2_gate3_verified=True))
     report=dict(status='running',formal=manifest['formal'],contracts={})
     tasks=[TaskIdentity('empirical_fit',str(i+1),args.case_id,role=c)
            for c in manifest['likelihood_contracts'] for i in range(len(models))]
@@ -135,21 +192,25 @@ def main():
                 pval=result.pval_mc_conservative,failure_bounds=result.pval_failure_bounds,
                 mc_ci95=result.pval_mc_ci95,n_failed=result.n_failed))
         maps=average.run_bsm(num_maps=manifest['bsm_maps'],num_threads=args.workers,seed=args.seed)
-        maps.clado_events_df.to_csv(directory/'cladogenetic_events.csv',index=False)
-        maps.ana_events_df.to_csv(directory/'anagenetic_events.csv',index=False)
-        diag=b.bsm_diagnostics(maps)
-        diag.event_summary_df.to_csv(directory/'event_precision.csv',index=False)
-        diag.route_rank_comparisons_df.to_csv(directory/'route_comparisons.csv',index=False)
-        report['contracts'][contract]=dict(bootstrap=bootstrap,profiles=profiles,precision_target_met=diag.precision_target_met)
+        mapping=write_bsm_outputs(maps,directory)
+        report['contracts'][contract]=dict(bootstrap=bootstrap,profiles=profiles,
+            precision_target_met=mapping['precision_target_met'],single_tree_mapping=mapping)
         dump(args.out/'results.json',report)
         if args.posterior_trees:
-            multi=b.fit_over_trees(args.posterior_trees,geog,models=models,summary_tree=tree,
-                likelihood_conditioning=contract,max_range_size=max_range_size,
-                max_trees=manifest['max_trees'],bsm_maps_per_tree=40 if args.mode=='smoke' else 500,
-                checkpoint_file=str(directory/'multitree.jsonl'),resume=True,num_threads=args.workers,seed=args.seed)
+            multi=fit_posterior_case(args.posterior_trees,geog,models,tree,contract,max_range_size,
+                manifest['max_trees'],manifest['bsm_maps_per_tree'],directory,args.workers,args.seed)
             multi.to_dataframe().to_csv(directory/'multitree_probability_bounds.csv',index=False)
             multi.per_tree_df.to_csv(directory/'per_tree_models.csv',index=False)
-    report['status']='complete' if all(p['status']=='complete' for c in report['contracts'].values() for p in c['profiles']) else 'incomplete_profiles'
+            multi.param_tree_sensitivity_df.to_csv(directory/'tree_parameter_sensitivity.csv',index=False)
+            multi.model_winner_freq.to_csv(directory/'tree_model_winner_frequency.csv')
+            joint=write_bsm_outputs(multi.joint_bsm,directory,'joint_')
+            report['contracts'][contract]['multitree']=dict(n_planned=multi.n_trees_planned,
+                n_complete=multi.n_trees_completed,n_incomplete=multi.n_trees_incomplete,
+                fit_method=multi.fit_method,joint_mapping=joint)
+            dump(args.out/'results.json',report)
+    profiles_complete=all(p['status']=='complete' for c in report['contracts'].values() for p in c['profiles'])
+    trees_complete=all(c.get('multitree',{}).get('n_incomplete',0)==0 for c in report['contracts'].values())
+    report['status']='complete' if profiles_complete and trees_complete else 'incomplete_profiles' if not profiles_complete else 'complete_with_tree_failures'
     dump(args.out/'results.json',report)
 
 
