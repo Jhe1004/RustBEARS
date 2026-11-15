@@ -63,7 +63,7 @@ class FormalSuiteTests(unittest.TestCase):
                     suite.check_result(dict(analysis=analysis,result=str(result),output=str(directory),settings=settings,
                         argv=['unit-command','--budget-json',str(budget_path)]),digest)
 
-    def make_driver(self,n=1,seconds=.1,*,jobs=None,cpu_budget=2,workers=1,large_workers=None,cpu_count_override=None):
+    def make_driver(self,n=1,seconds=.1,*,jobs=None,cpu_budget=2,workers=1,large_workers=None,cpu_count_override=None,priority_override=0):
         script=self.path/'dummy_worker.py'
         script.write_text('''import fcntl,json,os,sys,time
 from pathlib import Path
@@ -87,6 +87,9 @@ change(-1)
 from pathlib import Path
 sys.path.insert(0,{str(ROOT/'scripts')!r})
 import run_v12_formal_suite as suite
+# Host CI runners may inherit nice != 0. Isolate this environmental input for
+# sleeping dummy workers only; the production launcher's gate stays unchanged.
+suite.os.getpriority=lambda which,who: {priority_override!r}
 if {cpu_count_override!r} is not None:
  suite.os.cpu_count=lambda: {cpu_count_override!r}
 def dummy(job,index,output,budget_path,revbayes,d2,workers):
@@ -131,6 +134,14 @@ suite.main()
         self.assertTrue(all(set(row.values())=={'1'} for row in state['thread_env']))
         ledger=json.loads((self.output/'suite_ledger.json').read_text())
         self.assertEqual(len(ledger['outcomes']),4)
+
+    def test_nonzero_priority_is_rejected_before_any_execution_or_plan(self):
+        self.make_driver(priority_override=5)
+        result=self.run_driver('--execute')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('normal process priority (nice=0)',result.stderr)
+        self.assertFalse((self.path/'dummy_state.json').exists())
+        self.assertFalse(self.output.exists())
 
     def test_fixed_priority_and_large_allocation_leave_scientific_settings_unchanged(self):
         jobs=[dict(analysis='v1',n_tips=40,areas=4,scenario='interior',seed=1),

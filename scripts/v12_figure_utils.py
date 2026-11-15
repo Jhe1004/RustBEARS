@@ -32,7 +32,7 @@ def copy_evidence(paths, output):
         path = Path(path)
         destination = folder / f'{index:03d}_{path.name}'
         shutil.copyfile(path, destination)
-        inventory.append(dict(original=str(path.resolve()), archived=str(destination.relative_to(output)), sha256=sha(path)))
+        inventory.append(dict(original=str(path.resolve()), archived=destination.relative_to(output).as_posix(), sha256=sha(path)))
     write_json(Path(output) / 'source_inventory.json', inventory)
     return inventory
 
