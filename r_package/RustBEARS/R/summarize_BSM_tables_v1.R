@@ -1859,7 +1859,7 @@ hist_event_counts <- function(counts_list, pdffn="hist_event_counts.pdf", col="g
 	
 	dev.off()
 	cmdstr = paste0("open ", pdffn)
-	system(cmdstr)
+	if (interactive()) system(cmdstr)
 	} # END hist_event_counts <- function(counts_list, pdffn="hist_event_counts.pdf")
 
 # Max a table, with 0s for the integers that are unobserved
@@ -2025,7 +2025,7 @@ check_ML_vs_BSM <- function(res, clado_events_tables, model_name, tr=NULL, plot_
 	# Close PDF and open for viewer
 	dev.off()
 	cmdstr = paste("open ", pdffn)
-	system(cmdstr)
+	if (interactive()) system(cmdstr)
 	} # END check_ML_vs_BSM <- function(res, clado_events_tables, tr=NULL)
 
 
