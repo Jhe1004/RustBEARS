@@ -68,6 +68,13 @@ scores <- lapply(input$candidates, function(candidate) {
         !setequal(names(candidate),free) || length(candidate)!=length(free)) stop('each candidate must supply every free parameter exactly once')
     current <- run
     p <- parameters
+    eligible <- all(candidate[free]>=p[free,'min'] & candidate[free]<=p[free,'max'])
+    if (any(candidate[intersect(free,c('d','e','j','t12','t21','m1','m2'))] < 0)) stop('negative physical rate or multiplier in archived candidate')
+    # Rounded historical values can lie just outside an optimizer's box. Score
+    # the unchanged point, with an evaluation-only expanded box; preserve the
+    # ORIGINAL box and eligibility so it never becomes an optimization bound.
+    p[free,'min'] <- pmin(p[free,'min'],candidate[free])
+    p[free,'max'] <- pmax(p[free,'max'],candidate[free])
     p[free,'init'] <- candidate[free]
     p[free,'est'] <- candidate[free]
     current$BioGeoBEARS_model_object@params_table <- p
@@ -80,7 +87,8 @@ scores <- lapply(input$candidates, function(candidate) {
     if (!is.matrix(result[[top_name]]) || !is.matrix(result[[bottom_name]])) stop('upstream did not return ancestral matrices')
     list(lnL=unname(result$total_loglikelihood),ancestral_top=result[[top_name]],
          ancestral_bottom=result[[bottom_name]],params_table=result$outputs@params_table,
-         elapsed_seconds=elapsed,candidate_within_declared_bounds=all(candidate[free]>=p[free,'min'] & candidate[free]<=p[free,'max']))
+         elapsed_seconds=elapsed,declared_parameter_bounds=parameters[,c('min','max'),drop=FALSE],
+         candidate_within_declared_bounds=eligible,evaluation_box_expanded=!eligible)
 })
 packages <- c('BioGeoBEARS','cladoRcpp','rexpokit','ape','optimx','GenSA')
 metadata <- list(schema='rustbears.independent_legacy_oracle.v1',
