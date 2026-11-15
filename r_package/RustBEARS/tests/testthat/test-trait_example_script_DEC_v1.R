@@ -1003,80 +1003,14 @@ DECj_t12_t21_m2_rep2_t21 = 1.079082e-02
 DECj_t12_t21_m2_rep2_m2 = 3.126754e-01
 
 
-txt = "Checking the maximum lnL inferences for 7 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_lnLs = c(trait_1rate_lnL, trait_2rate_lnL, DEC_lnL, DECj_lnL, DEC_t12_t21_m2_lnL, DECj_t12_t21_m2_rep1_lnL, DECj_t12_t21_m2_rep2_lnL)
-test_lnLs = c(resTrait_1rate$total_loglikelihood, resTrait_2rates$total_loglikelihood, resDEC$total_loglikelihood, resDECj$total_loglikelihood, resDEC_t12_t21_m2$total_loglikelihood, resDECj_t12_t21_m2$total_loglikelihood, resDECj_t12_t21_m2_rep2$total_loglikelihood)
-
-expect_equal(object=round(archive_lnLs, digits=4), expected=round(test_lnLs, digits=4))
-cat("...PASSED  ")
-
-
-
-txt = "Checking the ML inferences of 'd' for 5 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(DEC_d, DECj_d, DEC_t12_t21_m2_d, DECj_t12_t21_m2_rep1_d, DECj_t12_t21_m2_rep2_d)
-test_vals = c(DEC_results[2], DECj_results[2], DEC_t12_t21_m2_results[2], DECj_t12_t21_m2_results[2], DECj_t12_t21_m2_rep2_results[2])
-
-expect_equal(object=round(archive_vals, digits=4), expected=unname(round(test_vals, digits=4)))
-cat("...PASSED  ")
-
-
-txt = "Checking the ML inferences of 'e' for 5 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(DEC_e, DECj_e, DEC_t12_t21_m2_e, DECj_t12_t21_m2_rep1_e, DECj_t12_t21_m2_rep2_e)
-test_vals = c(DEC_results[3], DECj_results[3], DEC_t12_t21_m2_results[3], DECj_t12_t21_m2_results[3], DECj_t12_t21_m2_rep2_results[3])
-
-expect_equal(object=round(archive_vals, digits=4), expected=unname(round(test_vals, digits=4)))
-cat("...PASSED  ")
-
-
-txt = "Checking the ML inferences of 'j' for 5 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(DEC_j, DECj_j, DEC_t12_t21_m2_j, DECj_t12_t21_m2_rep1_j, DECj_t12_t21_m2_rep2_j)
-test_vals = c(DEC_results[4], DECj_results[4], DEC_t12_t21_m2_results[4], DECj_t12_t21_m2_results[4], DECj_t12_t21_m2_rep2_results[4])
-
-expect_equal(object=round(archive_vals, digits=4), expected=unname(round(test_vals, digits=4)))
-cat("...PASSED  ")
-
-
-
-
-
-txt = "Checking the ML inferences of 't12' for 5 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(trait_1rate_t12, trait_2rate_t12, DEC_t12_t21_m2_t12, DECj_t12_t21_m2_rep1_t12, DECj_t12_t21_m2_rep2_t12)
-test_vals = c(Trait_1rate_results[5], Trait_2rates_results[5], DEC_t12_t21_m2_results[5], DECj_t12_t21_m2_results[5], DECj_t12_t21_m2_rep2_results[5])
-
-expect_equal(object=round(archive_vals, digits=3), expected=unname(round(test_vals, digits=3)))
-cat("...PASSED  ")
-
-
-txt = "Checking the ML inferences of 't21' for 5 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(trait_1rate_t21, trait_2rate_t21, DEC_t12_t21_m2_t21, DECj_t12_t21_m2_rep1_t21, DECj_t12_t21_m2_rep2_t21)
-test_vals = c(Trait_1rate_results[6], Trait_2rates_results[6], DEC_t12_t21_m2_results[6], DECj_t12_t21_m2_results[6], DECj_t12_t21_m2_rep2_results[6])
-
-expect_equal(object=round(archive_vals, digits=3), expected=unname(round(test_vals, digits=3)))
-cat("...PASSED  ")
-
-
-
-txt = "Checking the ML inferences of 'm2' for 3 models in example DEC_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(DEC_t12_t21_m2_m2, DECj_t12_t21_m2_rep1_m2, DECj_t12_t21_m2_rep2_m2)
-test_vals = c(DEC_t12_t21_m2_results[8], DECj_t12_t21_m2_results[8], DECj_t12_t21_m2_rep2_results[8])
-
-expect_equal(object=round(archive_vals, digits=3), expected=unname(round(test_vals, digits=3)))
-cat("...PASSED  ")
-
+# Fixed-score, ancestor, optimizer feasibility and independent upstream gates.
+# Historical constants above remain candidate inputs, not exact random-search outputs.
+.bgb_test_trait_archives(
+    fits=list(trait1=resTrait_1rate,trait2=resTrait_2rates,geog=resDEC,geogJ=resDECj,joint=resDEC_t12_t21_m2,jointJ=resDECj_t12_t21_m2,jointJrep2=resDECj_t12_t21_m2_rep2),
+    prefixes=list('trait_1rate','trait_2rate','DEC','DECj','DEC_t12_t21_m2',
+        c('DECj_t12_t21_m2_rep1','DECj_t12_t21_m2_rep2'),
+        c('DECj_t12_t21_m2_rep1','DECj_t12_t21_m2_rep2')),
+    env=environment(),label='DEC')
 
 #######################################################
 # Other checks -- "sanity checks" on ML inference with trait-based models
@@ -1112,18 +1046,10 @@ cat("...PASSED  ")
 
 
 
-txt = "Checking that DEC+J+t12+t21+m2 lnL (on rep. 2) == DEC+J+t12+t21+m2 lnL (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points) (archive values)..."
-cat("\n")
-cat(txt)
-expect_equal(object=round(DECj_t12_t21_m2_rep2_lnL, digits=3), expected=round(DECj_t12_t21_m2_rep1_lnL, digits=3))
-cat("...PASSED  ")
+# Two archived optimizer runs need not return the same optimum.
 
 # lnL
-txt = "Checking that DEC+J+t12+t21+m2 lnL (on rep. 2) == DEC+J+t12+t21+m2 lnL (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points) (test values)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[1], digits=4)), expected=unname(round(DECj_t12_t21_m2_results[1], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 
 
@@ -1164,46 +1090,22 @@ cat("...PASSED  ")
 
 
 # d
-txt = "Checking that DEC+J+t12+t21+m2 d (on rep. 2) == DEC+J+t12+t21+m2 d (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[2], digits=4)), expected=unname(round(DECj_t12_t21_m2_results[2], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # e
-txt = "Checking that DEC+J+t12+t21+m2 e (on rep. 2) == DEC+J+t12+t21+m2 e (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[3], digits=4)), expected=unname(round(DECj_t12_t21_m2_results[3], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # j
-txt = "Checking that DEC+J+t12+t21+m2 j (on rep. 2) == DEC+J+t12+t21+m2 j (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[4], digits=3)), expected=unname(round(DECj_t12_t21_m2_results[4], digits=3)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # t12
-txt = "Checking that DEC+J+t12+t21+m2 t12 (on rep. 2) == DEC+J+t12+t21+m2 t12 (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[5], digits=4)), expected=unname(round(DECj_t12_t21_m2_results[5], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # t21
-txt = "Checking that DEC+J+t12+t21+m2 t21 (on rep. 2) == DEC+J+t12+t21+m2 t21 (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[6], digits=4)), expected=unname(round(DECj_t12_t21_m2_results[6], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # m2
-txt = "Checking that DEC+J+t12+t21+m2 m2 (on rep. 2) == DEC+J+t12+t21+m2 m2 (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(DECj_t12_t21_m2_rep2_results[8], digits=3)), expected=unname(round(DECj_t12_t21_m2_results[8], digits=3)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 
 

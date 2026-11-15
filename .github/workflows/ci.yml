@@ -85,8 +85,11 @@ jobs:
             any::minqa
             any::gdata
             any::phylobase
+            nmatzke/BioGeoBEARS@876a48c4b3d6ada678e4de4d130b5b3bafea2b2c
       - name: Synchronize and verify native source
-        run: python scripts/sync_r_sources.py --manifest evidence/r-rust-mirror.json
+        run: |
+          python scripts/sync_r_sources.py --manifest evidence/r-rust-mirror.json
+          python -c "from pathlib import Path; assert Path('scripts/legacy_trait_oracle.R').read_bytes() == Path('r_package/RustBEARS/inst/validation/legacy_trait_oracle.R').read_bytes()"
       - name: Check R source package
         shell: Rscript {0}
         run: |

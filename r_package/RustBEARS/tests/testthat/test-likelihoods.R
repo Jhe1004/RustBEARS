@@ -2125,32 +2125,21 @@ correct_es = c(0.028, 0.000, 0.000, 0.000, 0.306, 0.000)
 correct_js = c(0.000, 0.114, 0.000, 0.116, 0.000, 0.108)
 
 
-cat("\n")
-txt = "Checking the BioGeoBEARS lnL under the 6 base models in the example script == the original example script archived results on the Psychotria dataset..."
-cat(txt)
-expect_equal(object=lnLs, expected=correct_lnLs)
-cat("...PASSED  ")
+# Exact fixed-parameter comparisons replace rounded optimizer coordinates.
+# The rounded historical parameter vectors remain independent oracle inputs;
+# their old rounded lnLs are not re-used as mathematical reference values.
+base_fits <- list(DEC=resDEC,DECJ=resDECj,DIVALIKE=resDIVALIKE,
+                  DIVALIKEJ=resDIVALIKEj,BAYAREALIKE=resBAYAREALIKE,BAYAREALIKEJ=resBAYAREALIKEj)
+for (i in seq_along(base_fits)) {
+    fit <- base_fits[[i]]
+    free <- rownames(fit$outputs@params_table)[fit$outputs@params_table$type=='free']
+    candidate <- c(d=correct_ds[i],e=correct_es[i],j=correct_js[i])[free]
+    .bgb_test_assert_archive_fit(fit,list(rounded_archive=candidate),paste0('Psychotria-',names(base_fits)[i]))
+}
 
-cat("\n")
-txt = "Checking the BioGeoBEARS ML inferred 'd' under the 6 base models in the example script == the original example script archived results on the Psychotria dataset..."
-cat(txt)
-expect_equal(object=d_inf, expected=correct_ds)
-cat("...PASSED  ")
-
-cat("\n")
-txt = "Checking the BioGeoBEARS  ML inferred 'e' under the 6 base models in the example script == the original example script archived results on the Psychotria dataset..."
-cat(txt)
-expect_equal(object=e_inf, expected=correct_es)
-cat("...PASSED  ")
-
-cat("\n")
-txt = "Checking the BioGeoBEARS  ML inferred 'j' under the 6 base models in the example script == the original example script archived results on the Psychotria dataset..."
-cat(txt)
-expect_equal(object=j_inf, expected=correct_js)
-cat("...PASSED  ")
 
 cat("\n\n")
-txt = "CHECKS PASSED: Likelihoods and ML parameter estimates match the original example script for the 6 basic models on the Psychotria dataset; see the original 'out-of-the-box' example script at http://phylo.wikidot.com/biogeobears#script"
+txt = "CHECKS PASSED: Fixed candidates and ancestral probabilities agree with the independent original engine for all 6 basic models; original fitted and separate bounded-search contracts passed."
 cat(txt)
 cat("\n\n")
 

@@ -1,0 +1,29 @@
+{
+  "schema": "rustbears.legacy_fixed_oracle.v1",
+  "engine": "independent upstream BioGeoBEARS 1.1.4 with original cladoRcpp/rexpokit",
+  "reference_evaluation": "fixed parameters; no optimization",
+  "upstream_pin_for_CI": "876a48c4b3d6ada678e4de4d130b5b3bafea2b2c",
+  "legacy_precision": "LegacyF32",
+  "root": "legacy raw weights",
+  "model": "DEC+J",
+  "params": {
+    "d": 0.4,
+    "e": 0.2,
+    "j": 0.1
+  },
+  "epochs": [
+    0.1,
+    1.5,
+    100
+  ],
+  "max_range_size": 3,
+  "include_null_range": true,
+  "lnL": -18.410726319261713,
+  "absolute_tolerance": 1e-10,
+  "inputs": {
+    "tree.newick": "205fd222a1fc7066d37429884e827d327c8a2b3511c13d0c05920d88d1c245e9",
+    "geog.data": "af93802471f78ffb038613942bd3aa815aa30b9034619a2844e1c2f02d7713db",
+    "timeperiods_OLD.txt": "63820e00282618f2e0fde330f6312a5e3c553760f2b99d2419dadec65abd1ab9",
+    "areas_allowed_noC2.txt": "4cadbd8ceb2a3dfa477719c9d6ff42a1f7fe4b21b59b885c34178f6a4012251b"
+  }
+}

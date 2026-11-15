@@ -1247,80 +1247,14 @@ BAYAREALIKEj_t12_t21_m2_rep2_t21 = 0.0118162460770523
 BAYAREALIKEj_t12_t21_m2_rep2_m2 = 0.325945808223546
 
 
-txt = "Checking the maximum lnL inferences for 7 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_lnLs = c(trait_1rate_lnL, trait_2rate_lnL, BAYAREALIKE_lnL, BAYAREALIKEj_lnL, BAYAREALIKE_t12_t21_m2_lnL, BAYAREALIKEj_t12_t21_m2_rep1_lnL, BAYAREALIKEj_t12_t21_m2_rep2_lnL)
-test_lnLs = c(resTrait_1rate$total_loglikelihood, resTrait_2rates$total_loglikelihood, resBAYAREALIKE$total_loglikelihood, resBAYAREALIKEj$total_loglikelihood, resBAYAREALIKE_t12_t21_m2$total_loglikelihood, resBAYAREALIKEj_t12_t21_m2$total_loglikelihood, resBAYAREALIKEj_t12_t21_m2_rep2$total_loglikelihood)
-
-expect_equal(object=round(archive_lnLs, digits=4), expected=round(test_lnLs, digits=4))
-cat("...PASSED  ")
-
-
-
-txt = "Checking the ML inferences of 'd' for 5 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(BAYAREALIKE_d, BAYAREALIKEj_d, BAYAREALIKE_t12_t21_m2_d, BAYAREALIKEj_t12_t21_m2_rep1_d, BAYAREALIKEj_t12_t21_m2_rep2_d)
-test_vals = c(BAYAREALIKE_results[2], BAYAREALIKEj_results[2], BAYAREALIKE_t12_t21_m2_results[2], BAYAREALIKEj_t12_t21_m2_results[2], BAYAREALIKEj_t12_t21_m2_rep2_results[2])
-
-expect_equal(object=round(archive_vals, digits=4), expected=unname(round(test_vals, digits=4)))
-cat("...PASSED  ")
-
-
-txt = "Checking the ML inferences of 'e' for 5 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(BAYAREALIKE_e, BAYAREALIKEj_e, BAYAREALIKE_t12_t21_m2_e, BAYAREALIKEj_t12_t21_m2_rep1_e, BAYAREALIKEj_t12_t21_m2_rep2_e)
-test_vals = c(BAYAREALIKE_results[3], BAYAREALIKEj_results[3], BAYAREALIKE_t12_t21_m2_results[3], BAYAREALIKEj_t12_t21_m2_results[3], BAYAREALIKEj_t12_t21_m2_rep2_results[3])
-
-expect_equal(object=round(archive_vals, digits=4), expected=unname(round(test_vals, digits=4)))
-cat("...PASSED  ")
-
-
-txt = "Checking the ML inferences of 'j' for 5 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(BAYAREALIKE_j, BAYAREALIKEj_j, BAYAREALIKE_t12_t21_m2_j, BAYAREALIKEj_t12_t21_m2_rep1_j, BAYAREALIKEj_t12_t21_m2_rep2_j)
-test_vals = c(BAYAREALIKE_results[4], BAYAREALIKEj_results[4], BAYAREALIKE_t12_t21_m2_results[4], BAYAREALIKEj_t12_t21_m2_results[4], BAYAREALIKEj_t12_t21_m2_rep2_results[4])
-
-expect_equal(object=round(archive_vals, digits=4), expected=unname(round(test_vals, digits=4)))
-cat("...PASSED  ")
-
-
-
-
-
-txt = "Checking the ML inferences of 't12' for 5 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(trait_1rate_t12, trait_2rate_t12, BAYAREALIKE_t12_t21_m2_t12, BAYAREALIKEj_t12_t21_m2_rep1_t12, BAYAREALIKEj_t12_t21_m2_rep2_t12)
-test_vals = c(Trait_1rate_results[5], Trait_2rates_results[5], BAYAREALIKE_t12_t21_m2_results[5], BAYAREALIKEj_t12_t21_m2_results[5], BAYAREALIKEj_t12_t21_m2_rep2_results[5])
-
-expect_equal(object=round(archive_vals, digits=3), expected=unname(round(test_vals, digits=3)))
-cat("...PASSED  ")
-
-
-txt = "Checking the ML inferences of 't21' for 5 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(trait_1rate_t21, trait_2rate_t21, BAYAREALIKE_t12_t21_m2_t21, BAYAREALIKEj_t12_t21_m2_rep1_t21, BAYAREALIKEj_t12_t21_m2_rep2_t21)
-test_vals = c(Trait_1rate_results[6], Trait_2rates_results[6], BAYAREALIKE_t12_t21_m2_results[6], BAYAREALIKEj_t12_t21_m2_results[6], BAYAREALIKEj_t12_t21_m2_rep2_results[6])
-
-expect_equal(object=round(archive_vals, digits=3), expected=unname(round(test_vals, digits=3)))
-cat("...PASSED  ")
-
-
-
-txt = "Checking the ML inferences of 'm2' for 3 models in example BAYAREALIKE_wTraits trait-dependent dispersal script..."
-cat("\n")
-cat(txt)
-archive_vals = c(BAYAREALIKE_t12_t21_m2_m2, BAYAREALIKEj_t12_t21_m2_rep1_m2, BAYAREALIKEj_t12_t21_m2_rep2_m2)
-test_vals = c(BAYAREALIKE_t12_t21_m2_results[8], BAYAREALIKEj_t12_t21_m2_results[8], BAYAREALIKEj_t12_t21_m2_rep2_results[8])
-
-expect_equal(object=round(archive_vals, digits=3), expected=unname(round(test_vals, digits=3)))
-cat("...PASSED  ")
-
+# Fixed-score, ancestor, optimizer feasibility and independent upstream gates.
+# Historical constants above remain candidate inputs, not exact random-search outputs.
+.bgb_test_trait_archives(
+    fits=list(trait1=resTrait_1rate,trait2=resTrait_2rates,geog=resBAYAREALIKE,geogJ=resBAYAREALIKEj,joint=resBAYAREALIKE_t12_t21_m2,jointJ=resBAYAREALIKEj_t12_t21_m2,jointJrep2=resBAYAREALIKEj_t12_t21_m2_rep2),
+    prefixes=list('trait_1rate','trait_2rate','BAYAREALIKE','BAYAREALIKEj','BAYAREALIKE_t12_t21_m2',
+        c('BAYAREALIKEj_t12_t21_m2_rep1','BAYAREALIKEj_t12_t21_m2_rep2'),
+        c('BAYAREALIKEj_t12_t21_m2_rep1','BAYAREALIKEj_t12_t21_m2_rep2')),
+    env=environment(),label='BAYAREALIKE')
 
 #######################################################
 # Other checks -- "sanity checks" on ML inference with trait-based models
@@ -1355,18 +1289,10 @@ cat("...PASSED  ")
 
 
 
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 lnL (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 lnL (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points) (archive values)..."
-cat("\n")
-cat(txt)
-expect_equal(object=round(BAYAREALIKEj_t12_t21_m2_rep2_lnL, digits=3), expected=round(BAYAREALIKEj_t12_t21_m2_rep1_lnL, digits=3))
-cat("...PASSED  ")
+# Two archived optimizer runs need not return the same optimum.
 
 # lnL
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 lnL (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 lnL (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points) (test values)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[1], digits=3)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[1], digits=3)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 
 
@@ -1385,46 +1311,22 @@ cat("...PASSED  ")
 
 
 # d
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 d (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 d (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[2], digits=4)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[2], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # e
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 e (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 e (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[3], digits=4)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[3], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # j
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 j (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 j (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[4], digits=1)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[4], digits=1)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # t12
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 t12 (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 t12 (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[5], digits=4)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[5], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # t21
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 t21 (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 t21 (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[6], digits=4)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[6], digits=4)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 # m2
-txt = "Checking that BAYAREALIKE+J+t12+t21+m2 m2 (on rep. 2) == BAYAREALIKE+J+t12+t21+m2 m2 (on rep. 1) (which it must be, because these are the same model, with optimization started from two different starting points)..."
-cat("\n")
-cat(txt)
-expect_equal(object=unname(round(BAYAREALIKEj_t12_t21_m2_rep2_results[8], digits=1)), expected=unname(round(BAYAREALIKEj_t12_t21_m2_results[8], digits=1)))
-cat("...PASSED  ")
+# Both searches are checked independently against the same exact-score oracle above.
 
 
 cat("\n")

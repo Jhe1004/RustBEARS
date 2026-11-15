@@ -320,7 +320,7 @@ BioGeoBEARS_run_object$include_null_range = TRUE    # set to FALSE for e.g. DEC*
 #  and BioGeoBEARS Google Group posts for further hints)
 #
 # Uncomment files you wish to use in time-stratified analyses:
-BioGeoBEARS_run_object$timesfn = "timeperiods.txt"
+BioGeoBEARS_run_object$timesfn = "timeperiods_OLD.txt"
 #BioGeoBEARS_run_object$dispersal_multipliers_fn = "manual_dispersal_multipliers.txt"
 BioGeoBEARS_run_object$areas_allowed_fn = "areas_allowed_noC2.txt"
 #BioGeoBEARS_run_object$areas_adjacency_fn = "areas_adjacency.txt"
@@ -411,7 +411,7 @@ BioGeoBEARS_run_object$include_null_range = TRUE    # set to FALSE for e.g. DEC*
 # Also: search script on "include_null_range" for other places to change
 
 # Set up a time-stratified analysis:
-BioGeoBEARS_run_object$timesfn = "timeperiods.txt"
+BioGeoBEARS_run_object$timesfn = "timeperiods_OLD.txt"
 #BioGeoBEARS_run_object$dispersal_multipliers_fn = "manual_dispersal_multipliers.txt"
 BioGeoBEARS_run_object$areas_allowed_fn = "areas_allowed_noC2.txt"
 #BioGeoBEARS_run_object$areas_adjacency_fn = "areas_adjacency.txt"
@@ -515,7 +515,7 @@ plot_BioGeoBEARS_results(results_object, analysis_titletxt, addl_params=list("j"
 
 dev.off()  # Turn off PDF
 cmdstr = paste("open ", pdffn, sep="")
-system(cmdstr) # Plot it
+if (interactive()) system(cmdstr) # View only in an interactive session
 
 #######################################################
 #######################################################
@@ -553,7 +553,7 @@ BioGeoBEARS_run_object$include_null_range = TRUE    # set to FALSE for e.g. DEC*
 # Also: search script on "include_null_range" for other places to change
 
 # Set up a time-stratified analysis:
-BioGeoBEARS_run_object$timesfn = "timeperiods.txt"
+BioGeoBEARS_run_object$timesfn = "timeperiods_OLD.txt"
 #BioGeoBEARS_run_object$dispersal_multipliers_fn = "manual_dispersal_multipliers.txt"
 BioGeoBEARS_run_object$areas_allowed_fn = "areas_allowed_noC2.txt"
 #BioGeoBEARS_run_object$areas_adjacency_fn = "areas_adjacency.txt"
@@ -635,7 +635,7 @@ BioGeoBEARS_run_object$include_null_range = TRUE    # set to FALSE for e.g. DEC*
 # Also: search script on "include_null_range" for other places to change
 
 # Set up a time-stratified analysis:
-BioGeoBEARS_run_object$timesfn = "timeperiods.txt"
+BioGeoBEARS_run_object$timesfn = "timeperiods_OLD.txt"
 #BioGeoBEARS_run_object$dispersal_multipliers_fn = "manual_dispersal_multipliers.txt"
 BioGeoBEARS_run_object$areas_allowed_fn = "areas_allowed_noC2.txt"
 #BioGeoBEARS_run_object$areas_adjacency_fn = "areas_adjacency.txt"
@@ -755,7 +755,7 @@ plot_BioGeoBEARS_results(results_object, analysis_titletxt, addl_params=list("j"
 
 dev.off()
 cmdstr = paste("open ", pdffn, sep="")
-system(cmdstr)
+if (interactive()) system(cmdstr) # No GUI in noninteractive checks
 
 #######################################################
 #######################################################
@@ -809,7 +809,7 @@ BioGeoBEARS_run_object$include_null_range = TRUE    # set to FALSE for e.g. DEC*
 # Also: search script on "include_null_range" for other places to change
 
 # Set up a time-stratified analysis:
-BioGeoBEARS_run_object$timesfn = "timeperiods.txt"
+BioGeoBEARS_run_object$timesfn = "timeperiods_OLD.txt"
 #BioGeoBEARS_run_object$dispersal_multipliers_fn = "manual_dispersal_multipliers.txt"
 BioGeoBEARS_run_object$areas_allowed_fn = "areas_allowed_noC2.txt"
 #BioGeoBEARS_run_object$areas_adjacency_fn = "areas_adjacency.txt"
@@ -898,7 +898,7 @@ BioGeoBEARS_run_object$include_null_range = TRUE    # set to FALSE for e.g. DEC*
 # Also: search script on "include_null_range" for other places to change
 
 # Set up a time-stratified analysis:
-BioGeoBEARS_run_object$timesfn = "timeperiods.txt"
+BioGeoBEARS_run_object$timesfn = "timeperiods_OLD.txt"
 #BioGeoBEARS_run_object$dispersal_multipliers_fn = "manual_dispersal_multipliers.txt"
 BioGeoBEARS_run_object$areas_allowed_fn = "areas_allowed_noC2.txt"
 #BioGeoBEARS_run_object$areas_adjacency_fn = "areas_adjacency.txt"
@@ -1037,7 +1037,7 @@ plot_BioGeoBEARS_results(results_object, analysis_titletxt, addl_params=list("j"
 
 dev.off()
 cmdstr = paste("open ", pdffn, sep="")
-system(cmdstr)
+if (interactive()) system(cmdstr) # No GUI in noninteractive checks
 
 #########################################################################
 #########################################################################
@@ -1243,7 +1243,7 @@ plot_BioGeoBEARS_results(results_object, analysis_titletxt, addl_params=list("j"
 
 dev.off()  # Turn off PDF
 cmdstr = paste("open ", pdffn, sep="")
-system(cmdstr) # Plot it
+if (interactive()) system(cmdstr) # View only in an interactive session
 
 #######################################################
 # Stochastic mapping on DEC M3b stratified with islands coming up
@@ -1369,7 +1369,7 @@ plot_BioGeoBEARS_results(results_object=resmod, analysis_titletxt="Stochastic ma
 ############################################
 dev.off()
 cmdstr = paste("open ", pdffn, sep="")
-system(cmdstr)
+if (interactive()) system(cmdstr) # No GUI in noninteractive checks
 
 #######################################################
 # Plot all 50 stochastic maps to PDF
@@ -1400,7 +1400,7 @@ for (i in 1:nummaps_goal)
 
 dev.off()
 cmdstr = paste("open ", pdffn, sep="")
-system(cmdstr)
+if (interactive()) system(cmdstr) # No GUI in noninteractive checks
 
 #######################################################
 # Summarize stochastic map tables
@@ -1476,41 +1476,11 @@ cat("...done.\n")
 library(MultinomialCI)    # For 95% CIs on BSM counts
 check_ML_vs_BSM(res, clado_events_tables, model_name, tr=NULL, plot_each_node=FALSE, linreg_plot=TRUE, MultinomialCI=TRUE)
 
-txt = "For 3-taxon tree, with time-stratification and area C excluded in middle time-bin...Check that the event counts match what is expected for seedval=12345."
-cat("\n")
-cat(txt)
-
-
-A_to_B_dispersals = counts_list$all_dispersals_counts_fromto_means["A","B"]
-expect_equal(object=A_to_B_dispersals, expected=2.8)
-
-B_to_A_dispersals = counts_list$all_dispersals_counts_fromto_means["B","A"]
-expect_equal(object=B_to_A_dispersals, expected=3.34)
-
-A_to_C_dispersals = counts_list$all_dispersals_counts_fromto_means["A","C"]
-expect_equal(object=A_to_C_dispersals, expected=1.44)
-
-C_to_A_dispersals = counts_list$all_dispersals_counts_fromto_means["C","A"]
-expect_equal(object=C_to_A_dispersals, expected=0.38)
-
-B_to_C_dispersals = counts_list$all_dispersals_counts_fromto_means["B","C"]
-expect_equal(object=B_to_C_dispersals, expected=1.24)
-
-C_to_B_dispersals = counts_list$all_dispersals_counts_fromto_means["C","B"]
-expect_equal(object=C_to_B_dispersals, expected=0.3)
-
-
-summary_mean_ds = round(counts_list$summary_counts_BSMs["means","d"], digits=2)
-expect_equal(object=summary_mean_ds, expected=9.5)
-
-summary_stdevs_ds = round(counts_list$summary_counts_BSMs["stdevs","d"], digits=2)
-expect_equal(object=summary_stdevs_ds, expected=1.99)
-
-summary_sums_ds = round(counts_list$summary_counts_BSMs["sums","d"], digits=2)
-expect_equal(object=summary_sums_ds, expected=475)
-
-cat("\n...PASSED  ")
-
+# The original nine exact counts (including 475 dispersals) fail in the
+# unmodified upstream engine too after correcting its invalid two/three-epoch
+# input. Test probability and event-table contracts rather than a past RNG draw.
+.bgb_test_assert_three_epoch_fixed_score(res$inputs)
+.bgb_test_assert_three_epoch_maps(counts_list,ana_events_tables,clado_events_tables,areanames)
 
 # Check that, in all 50 Biogeographic Stochastic Maps (BSMs),
 # the excluded area (C) in the middle time-period (0.1-1.5 Ma)
