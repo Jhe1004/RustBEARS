@@ -336,7 +336,7 @@ def export_tables(runs,tables,out):
         all_registered_summaries_and_outcomes_retained=True,unavailable_values='empty CSV field or JSON null; never zero-imputed',
         checkpoint_arrays='Original checkpoints and array files remain untouched; their index and stored shard digests are retained, not flattened into CSV.',
         interval_definitions=CONTRACT['rate_display']))
-    return {str(p.relative_to(out)):sha(p) for p in folder.iterdir() if p.is_file()}
+    return {p.relative_to(out).as_posix():sha(p) for p in folder.iterdir() if p.is_file()}
 
 
 def audit_command(command,log):
