@@ -318,12 +318,25 @@ def completed_statistical_suite(folder,expected_budget=None,expected_sha=None):
     if expected_budget is not None:
         jobs=expected_budget['jobs']
         keys=[(j['analysis'],j.get('scenario'),j.get('n_tips'),j.get('areas'),bool(j.get('finite_b_extrapolation',False))) for j in jobs]
-        if (plan.get('budget_sha256')!=expected_sha or len(jobs)!=28 or len(keys)!=len(set(keys))
-            or {j['analysis'] for j in jobs}!={'v1','v2b','v2c','v3','v4','d1','d2'}
+        if (not jobs or plan.get('budget_sha256')!=expected_sha or len(ids)!=len(jobs) or len(keys)!=len(set(keys))
+            or any(j['analysis'] not in ('v1','v2b','v2c','v3','v4','d1','d2') for j in jobs)
             or sorted(json.dumps(j['settings'],sort_keys=True) for j in plan['jobs'])!=sorted(json.dumps(j,sort_keys=True) for j in jobs)):
-            raise ValueError('predecessor is not the locked 28-task statistical budget')
-        if plan.get('script_sha256')!=expected_budget['source_sha256'].get('scripts/run_v12_formal_suite.py'):
+            raise ValueError('predecessor is not the complete locked statistical budget')
+        suite_source=expected_budget['source_sha256'].get('scripts/run_v12_formal_suite.py')
+        if plan.get('script_sha256')!=suite_source or sha(ROOT/'scripts/run_v12_formal_suite.py')!=suite_source:
             raise ValueError('predecessor launcher source mismatch')
+        # Match the frozen suite's IDs in original budget order, independently
+        # of its scheduling priority. No command is constructed or executed.
+        expected_ids={}
+        for index,job in enumerate(jobs,1):
+            name=f'{index:02d}_{job["analysis"]}'
+            if job['analysis'] in ('v1','v2b','v2c'):
+                name+=f'_n{job["n_tips"]}_a{job["areas"]}_{job["scenario"]}'
+                if job.get('finite_b_extrapolation'):name+='_finiteB'
+            expected_ids[name]=job
+        if set(ids)!=set(expected_ids) or any(j['settings']!=expected_ids[j['id']]
+            or j.get('analysis')!=expected_ids[j['id']]['analysis'] for j in plan['jobs']):
+            raise ValueError('predecessor job IDs/configurations differ from the locked statistical budget')
     if (ledger.get('plan_sha256')!=sha(folder/'suite_plan.json') or ledger.get('status') not in ('all_workflows_processed','completed_with_retained_failures')
         or ledger.get('source_unchanged') is not True or len(rows)!=len(ids) or {r['id'] for r in rows}!=set(ids)
         or any(r['status'] not in ('processed','failed_retained') for r in rows)

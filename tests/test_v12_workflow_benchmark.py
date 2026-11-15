@@ -84,7 +84,7 @@ class WorkflowBenchmarkTests(unittest.TestCase):
         bench.write(self.path/'suite_plan.json',dict(jobs=[dict(id='a',settings={})],budget_sha256='wrong'))
         bench.write(self.path/'suite_ledger.json',dict(outcomes=[]))
         expected=dict(jobs=[dict(analysis='v1')],source_sha256={})
-        with self.assertRaisesRegex(ValueError,'28-task'):bench.completed_statistical_suite(self.path,expected,'authorized')
+        with self.assertRaisesRegex(ValueError,'complete locked statistical budget'):bench.completed_statistical_suite(self.path,expected,'authorized')
         original=self.path/'statistical_budget.json'
         bench.write(original,dict(schema='rustbears.formal_budget.v1',status='locked',gate_evidence=dict(sha256='gates')))
         budget=dict(predecessor_budget=dict(path=original.name,sha256=bench.sha(original)),
