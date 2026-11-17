@@ -55,4 +55,14 @@ for(target in c('fixed_sample','posterior_population')) {
     expected<-read_reference(paste0('multitree_',target,'_diagnostics.tsv'))
     equal_frames(diagnostic,expected[,intersect(names(expected),names(diagnostic)),drop=FALSE])
 }
+chain<-fit_over_trees(env$x,c(rep(c(env$tree,env$rotated),30L),env$tree),models=list(fixed=env$x$BioGeoBEARS_model_object),
+    likelihood_conditioning='tip_survival',criterion='AIC',init_strategy='full_cold_start',cold_start_audit_fraction=0,
+    bsm_maps_per_tree=4L,seedval=54321L)
+equal_frames(chain$joint_bsm$clado_events_df,read_reference('chain_clado.tsv'))
+equal_frames(chain$joint_bsm$ana_events_df,read_reference('chain_ana.tsv'))
+equal_frames(chain$joint_bsm$map_metadata_df,read_reference('chain_metadata.tsv'))
+chain_diag<-bsm_diagnostics(chain$joint_bsm,min_mean_count=0,tree_target='posterior_population',tree_dependence='mcmc_chain')$event_summary_df
+chain_diag$event_type<-chain_diag$statistic;chain_diag$assessed<-chain_diag$assessment=='assessed'
+expected_chain<-read_reference('chain_mcmc_diagnostics.tsv')
+equal_frames(chain_diag,expected_chain[,intersect(names(expected_chain),names(chain_diag)),drop=FALSE])
 cat(sprintf('R_PYTHON_CROSS_PASS six_models_max_abs_error=%.17g; exact task hashes and all 40 model-stratified plus 80 multitree event histories\n',maximum))

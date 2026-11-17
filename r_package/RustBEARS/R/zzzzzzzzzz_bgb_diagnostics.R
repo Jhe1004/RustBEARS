@@ -46,6 +46,7 @@
     if(lower>=-margin&&upper<=margin)'near_tie' else
         if(lower>margin||upper< -margin)'resolved' else 'unresolved'
 }
+.bgb_u_min_mcmc_ess <- 50
 .bgb_u_scalar_summary <- function(x,strata,tree_target,tree_dependence,alpha) {
     strata<-strata[strata$stratum_weight>0,,drop=FALSE]
     groups<-lapply(strata$map_ids,function(ids)x[ids])
@@ -62,21 +63,31 @@
     if(length(tree_ids)>1L)between<-max(0,sum(tree_w*(tree_means-estimate)^2-
         tree_w*(1-tree_w)*tree_mapping_var)/(1-sum(tree_w^2)))
     ess<-NA_real_;se<-sqrt(within)
+    ci_lo<-NA_real_;ci_hi<-NA_real_
     if(tree_target=='posterior_population') {
         k<-length(tree_ids)
         if(k<2L)stop('tree-population precision requires at least two trees')
         if(max(abs(tree_w-1/k))>1e-12)stop('tree-population precision currently requires equal tree weights')
         if(is.null(tree_dependence))stop('posterior_population requires explicit tree_dependence')
-        ess<-if(tree_dependence=='mcmc_chain').bgb_u_ips(tree_means)$ess else k
+        ess<-if(tree_dependence=='mcmc_chain').bgb_u_ips(tree_means)$ess else as.numeric(k)
         se<-if(stats::var(tree_means)==0)0 else sqrt(stats::var(tree_means)/ess)
+        if(tree_dependence=='independent') {
+            crit<-stats::qt(1-alpha/2,df=k-1L)
+            ci_lo<-estimate-crit*se;ci_hi<-estimate+crit*se
+        } else if(is.finite(ess)&&ess>=.bgb_u_min_mcmc_ess) {
+            crit<-stats::qt(1-alpha/2,df=ess-1)
+            ci_lo<-estimate-crit*se;ci_hi<-estimate+crit*se
+        }
+    } else {
+        z<-stats::qnorm(1-alpha/2)
+        ci_lo<-estimate-z*se;ci_hi<-estimate+z*se
     }
     map_weights<-numeric(length(x))
     for(i in seq_along(groups))map_weights[strata$map_ids[[i]]]<-w[i]/ns[i]
     q<-.bgb_u_weighted_quantile(x,map_weights,c(.025,.975))
-    z<-stats::qnorm(1-alpha/2)
     stratum_q<-.bgb_u_weighted_quantile(means,w,c(.025,.975))
     list(mean=estimate,rpi_025=q[1],rpi_975=q[2],se_target=se,mapping_mcse=sqrt(within),
-         mean_mc_ci_lower=estimate-z*se,mean_mc_ci_upper=estimate+z*se,
+         mean_mc_ci_lower=ci_lo,mean_mc_ci_upper=ci_hi,
          var_within=sum(w*variances),var_between_trunc=between,stratum_mean_q025=stratum_q[1],
          stratum_mean_q975=stratum_q[2],effective_n_trees=ess)
 }
@@ -131,12 +142,16 @@ bsm_diagnostics <- function(bsm_output,res=NULL,target_rmcse=.05,tie_margin=.25,
         x<-.bgb_u_scalar_summary(matrices$routes[,a]-matrices$routes[,b],strata,tree_target,tree_dependence,alpha)
         assessed<-route$mean[a]>=min_mean_count&&route$mean[b]>=min_mean_count&&is.finite(x$se_target)
         lo<-x$mean_mc_ci_lower;hi<-x$mean_mc_ci_upper
-        status<-if(!assessed)'unresolved' else .bgb_u_rank_status(lo,hi,tie_margin)
+        status<-if(!assessed||!all(is.finite(c(lo,hi))))'unresolved' else .bgb_u_rank_status(lo,hi,tie_margin)
         pairs[[i]]<-data.frame(route_a=route$statistic[a],route_b=route$statistic[b],mean_diff=x$mean,
-            se_diff=x$se_target,ci_lower=lo,ci_upper=hi,tie_margin=tie_margin,zero_excluded=lo>0||hi<0,
+            se_diff=x$se_target,ci_lower=lo,ci_upper=hi,tie_margin=tie_margin,zero_excluded=isTRUE(lo>0||hi<0),
             status=status,assessment=if(assessed)'assessed' else 'not_assessed',effective_n_trees=x$effective_n_trees)
     }
     active<-c(event$rmcse[event$assessment=='assessed'],route$rmcse[route$assessment=='assessed'])
+    ci_ok<-all(is.finite(c(event$mean_mc_ci_lower[event$assessment=='assessed'],
+                           event$mean_mc_ci_upper[event$assessment=='assessed'],
+                           route$mean_mc_ci_lower[route$assessment=='assessed'],
+                           route$mean_mc_ci_upper[route$assessment=='assessed'])))
     maximum<-if(length(active))max(active) else Inf
     reason<-bsm_output$stop_reason;if(is.null(reason))reason<-'fixed_count'
     all_events<-rbind(bsm_output$ana_events_df[,c('map','time_bp','event_type')],
@@ -156,7 +171,7 @@ bsm_diagnostics <- function(bsm_output,res=NULL,target_rmcse=.05,tie_margin=.25,
     structure(list(sampling_design=if(length(unique(strata$tree_id))>1L)'two_stage_trees' else
         if(nrow(strata)>1L)'model_stratified' else 'single_tree_iid',stop_reason=reason,
         tree_target=tree_target,tree_dependence=tree_dependence,num_maps_total=bsm_output$num_maps,
-        precision_target_met=is.finite(maximum)&&maximum<=target_rmcse,target_rmcse=target_rmcse,
+        precision_target_met=length(active)>0L&&ci_ok&&is.finite(maximum)&&maximum<=target_rmcse,target_rmcse=target_rmcse,
         tie_margin=tie_margin,max_observed_rmcse=maximum,event_summary_df=event,route_summary_df=route,
         route_rank_comparisons_df=if(length(pairs))do.call(rbind,pairs) else data.frame(),ett_df=ett,
         interval_scope='approximate per-comparison exploratory; no simultaneous or optional-stopping guarantee'),
@@ -165,6 +180,7 @@ bsm_diagnostics <- function(bsm_output,res=NULL,target_rmcse=.05,tie_margin=.25,
 plot.rustbears_bsm_diag <- function(x,...) {
     z<-x$event_summary_df
     locations<-graphics::barplot(stats::setNames(z$mean,z$statistic),ylab='Mean events per history',...)
-    graphics::arrows(locations,z$mean_mc_ci_lower,locations,z$mean_mc_ci_upper,angle=90,code=3,length=.05)
+    ok<-is.finite(z$mean_mc_ci_lower)&is.finite(z$mean_mc_ci_upper)&z$mean_mc_ci_upper>z$mean_mc_ci_lower
+    if(any(ok))graphics::arrows(locations[ok],z$mean_mc_ci_lower[ok],locations[ok],z$mean_mc_ci_upper[ok],angle=90,code=3,length=.05)
     invisible(x)
 }

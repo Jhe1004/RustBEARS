@@ -7,14 +7,15 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 import rustbears as b
 from rustbears.bsm import _ANA, _CLADO
 from rustbears.uncertainty.averaging import model_average, align_node_array
 from rustbears.uncertainty.checkpoint import (CheckpointStore, CheckpointMismatchError,
     task_fingerprint, frame_arrays, restore_frame)
-from rustbears.uncertainty.diagnostics import (_make_bsm, bsm_diagnostics,
-    run_bsm_adaptive, rank_status)
+from rustbears.uncertainty.diagnostics import (MIN_MCMC_EFFECTIVE_TREES, _make_bsm,
+    _t_two_sided_crit, bsm_diagnostics, run_bsm_adaptive, rank_status)
 
 
 def fitted(tree="((T1:1,T2:1):1,T3:2);", d=.2, j=0):
@@ -94,7 +95,13 @@ class DiagnosticTests(unittest.TestCase):
         fixed = bsm_diagnostics(maps, min_mean_count=.1)
         population = bsm_diagnostics(maps, min_mean_count=.1, tree_target="posterior_population", tree_dependence="independent")
         self.assertEqual(fixed.route_summary_df.iloc[0].se_target, 0)
-        self.assertAlmostEqual(population.route_summary_df.iloc[0].se_target, np.std([1,4,7],ddof=1)/np.sqrt(3))
+        expected_se = np.std([1,4,7],ddof=1)/np.sqrt(3)
+        row = population.route_summary_df.iloc[0]
+        self.assertAlmostEqual(row.se_target, expected_se)
+        t_crit = _t_two_sided_crit(.05, 2)
+        self.assertAlmostEqual(row.mean_mc_ci_lower, 4.0 - t_crit * expected_se)
+        self.assertAlmostEqual(row.mean_mc_ci_upper, 4.0 + t_crit * expected_se)
+        self.assertGreater(row.mean_mc_ci_upper - row.mean_mc_ci_lower, 2 * norm.ppf(.975) * expected_se)
         with self.assertRaisesRegex(ValueError, "explicit"):
             bsm_diagnostics(maps, tree_target="posterior_population")
 
@@ -105,12 +112,40 @@ class DiagnosticTests(unittest.TestCase):
         meta = pd.DataFrame({"map":range(1,81), "tree_id":np.repeat(range(1,41),2),
                              "model_id":1, "stratum_weight":1/n})
         maps = synthetic(forward, reverse, meta)
-        result = bsm_diagnostics(maps, min_mean_count=.1, tree_target="posterior_population", tree_dependence="mcmc_chain")
+        result = bsm_diagnostics(maps, target_rmcse=1.0, min_mean_count=.1, tree_target="posterior_population", tree_dependence="mcmc_chain")
         ess = result.route_summary_df.effective_n_trees.to_numpy()
         self.assertLess(ess[0], ess[1])
+        self.assertTrue(np.all(ess < MIN_MCMC_EFFECTIVE_TREES))
+        self.assertTrue(result.route_summary_df.mean_mc_ci_lower.isna().all())
+        self.assertTrue(result.route_summary_df.mean_mc_ci_upper.isna().all())
+        self.assertFalse(result.precision_target_met)
+        comp = result.route_rank_comparisons_df.iloc[0]
+        self.assertEqual(comp.status, "unresolved")
+        self.assertFalse(comp.zero_excluded)
         maps.tree_order = tuple(np.ravel(np.column_stack((np.arange(1,21),np.arange(21,41)))))
         altered = bsm_diagnostics(maps, min_mean_count=.1, tree_target="posterior_population", tree_dependence="mcmc_chain")
         self.assertNotEqual(ess[0], altered.route_summary_df.iloc[0].effective_n_trees)
+
+    def test_mcmc_chain_interval_activates_above_min_ess(self):
+        n = 60
+        forward = np.repeat(np.r_[np.full(30,2),np.full(30,8)],2)
+        reverse = np.repeat(np.tile([4,6],30),2)
+        meta = pd.DataFrame({"map":range(1,2*n+1), "tree_id":np.repeat(range(1,n+1),2),
+                             "model_id":1, "stratum_weight":1/n})
+        maps = synthetic(forward, reverse, meta)
+        result = bsm_diagnostics(maps, target_rmcse=1.0, min_mean_count=.1,
+                                 tree_target="posterior_population", tree_dependence="mcmc_chain")
+        low_ess_row = result.route_summary_df.iloc[0]
+        high_ess_row = result.route_summary_df.iloc[1]
+        self.assertLess(low_ess_row.effective_n_trees, MIN_MCMC_EFFECTIVE_TREES)
+        self.assertTrue(np.isnan(low_ess_row.mean_mc_ci_lower))
+        self.assertGreaterEqual(high_ess_row.effective_n_trees, MIN_MCMC_EFFECTIVE_TREES)
+        expected_crit = _t_two_sided_crit(.05, high_ess_row.effective_n_trees - 1.0)
+        self.assertAlmostEqual(high_ess_row.mean_mc_ci_lower,
+                               high_ess_row["mean"] - expected_crit * high_ess_row.se_target)
+        self.assertAlmostEqual(high_ess_row.mean_mc_ci_upper,
+                               high_ess_row["mean"] + expected_crit * high_ess_row.se_target)
+        self.assertFalse(result.precision_target_met)
 
     def test_paired_contrast_retains_covariance_and_equivalence_rules(self):
         maps = synthetic([1,2,3,4], [1,2,3,4])

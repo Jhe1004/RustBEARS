@@ -104,4 +104,32 @@ strata<-data.frame(tree_id=c(1L,1L),model_id=1:2,stratum_weight=c(.75,.25));stra
 scalar<-RustBEARS:::.bgb_u_scalar_summary(c(0,2,2,4),strata,'fixed_sample',NULL,.05)
 stopifnot(abs(scalar$mean-1.5)<1e-15,abs(scalar$var_within-2)<1e-15,
     abs(scalar$mapping_mcse-sqrt(.625))<1e-15)
+strata_ind<-data.frame(tree_id=1:3,model_id=1L,stratum_weight=rep(1/3,3L));strata_ind$map_ids<-list(1:2,3:4,5:6)
+pop_ind<-RustBEARS:::.bgb_u_scalar_summary(c(1,1,4,4,7,7),strata_ind,'posterior_population','independent',.05)
+expected_ind_se<-stats::sd(c(1,4,7))/sqrt(3)
+stopifnot(abs(pop_ind$se_target-expected_ind_se)<1e-15,
+    abs(pop_ind$mean_mc_ci_lower-(4-stats::qt(.975,df=2)*expected_ind_se))<1e-14,
+    abs(pop_ind$mean_mc_ci_upper-(4+stats::qt(.975,df=2)*expected_ind_se))<1e-14)
+strata_short<-data.frame(tree_id=1:40,model_id=1L,stratum_weight=rep(1/40,40L))
+strata_short$map_ids<-lapply(1:40,function(i)c(2L*i-1L,2L*i))
+pop_short<-RustBEARS:::.bgb_u_scalar_summary(rep(c(rep(2,20),rep(8,20)),each=2L),strata_short,'posterior_population','mcmc_chain',.05)
+stopifnot(is.finite(pop_short$effective_n_trees),pop_short$effective_n_trees<50,
+    is.na(pop_short$mean_mc_ci_lower),is.na(pop_short$mean_mc_ci_upper))
+strata_long<-data.frame(tree_id=1:60,model_id=1L,stratum_weight=rep(1/60,60L))
+strata_long$map_ids<-lapply(1:60,function(i)c(2L*i-1L,2L*i))
+pop_long<-RustBEARS:::.bgb_u_scalar_summary(rep(rep(c(4,6),30L),each=2L),strata_long,'posterior_population','mcmc_chain',.05)
+stopifnot(is.finite(pop_long$effective_n_trees),pop_long$effective_n_trees>=50,
+    abs(pop_long$mean_mc_ci_lower-(pop_long$mean-stats::qt(.975,df=pop_long$effective_n_trees-1)*pop_long$se_target))<1e-14,
+    abs(pop_long$mean_mc_ci_upper-(pop_long$mean+stats::qt(.975,df=pop_long$effective_n_trees-1)*pop_long$se_target))<1e-14)
+short_bsm<-native;short_bsm$areas<-c('A','B');short_bsm$num_maps<-80L;short_bsm$strata<-strata_short;short_bsm$tree_order<-1:40
+short_bsm$clado_events_df<-short_bsm$clado_events_df[0,,drop=FALSE]
+short_rows<-do.call(rbind,lapply(1:80,function(m) {
+    cnt<-if(m<=40L)2L else 8L
+    data.frame(map=rep(m,cnt+3L),node=1L,time_bp=.5,event_type='d',
+               source_area=c(rep('A',cnt),rep('B',3L)),destination_area=c(rep('B',cnt),rep('A',3L)),stringsAsFactors=FALSE)
+}))
+short_bsm$ana_events_df<-short_rows
+short_diag<-bsm_diagnostics(short_bsm,target_rmcse=1,min_mean_count=.1,tree_target='posterior_population',tree_dependence='mcmc_chain')
+stopifnot(!short_diag$precision_target_met,all(is.na(short_diag$route_summary_df$mean_mc_ci_lower)),
+    short_diag$route_rank_comparisons_df$status[1]=='unresolved',!short_diag$route_rank_comparisons_df$zero_excluded[1])
 cat('R_V12_SUMMARIES_PASS\n')

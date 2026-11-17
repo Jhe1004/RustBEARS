@@ -43,6 +43,15 @@ def write_references(output):
     for target,dependence in (("fixed_sample",None),("posterior_population","independent")):
         bsm_diagnostics(multi.joint_bsm,min_mean_count=0,tree_target=target,tree_dependence=dependence).event_summary_df.to_csv(
             output/f"multitree_{target}_diagnostics.tsv",sep="\t",index=False)
+    chain=fit_over_trees([TREE,rotated]*30+[TREE],GEOG,[fits[0].model.model],
+        likelihood_conditioning="tip_survival",criterion="AIC",init_strategy="full_cold_start",
+        cold_start_audit_fraction=0,bsm_maps_per_tree=4,num_threads=1,seed=54321)
+    chain.joint_bsm.clado_events_df.to_csv(output/"chain_clado.tsv",sep="\t",index=False)
+    chain.joint_bsm.ana_events_df.to_csv(output/"chain_ana.tsv",sep="\t",index=False)
+    chain.joint_bsm.map_metadata.to_csv(output/"chain_metadata.tsv",sep="\t",index=False)
+    bsm_diagnostics(chain.joint_bsm,min_mean_count=0,tree_target="posterior_population",
+                    tree_dependence="mcmc_chain").event_summary_df.to_csv(
+        output/"chain_mcmc_diagnostics.tsv",sep="\t",index=False)
     trees=[TREE,"((甲:1,乙:1):1,Ω:2);"]
     pd.DataFrame([dict(tree=tree,sha256=topology_hash(b.read_newick(tree))) for tree in trees]).to_csv(output/"topology_hashes.tsv",sep="\t",index=False)
 

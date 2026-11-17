@@ -22,7 +22,7 @@ sys.path.insert(0,str(ROOT))
 import rustbears as b
 from rustbears._ffi import PreparedSampler
 from rustbears.uncertainty.checkpoint import model_manifest,task_fingerprint,canonical_manifest
-from rustbears.uncertainty.diagnostics import run_bsm_adaptive
+from rustbears.uncertainty.diagnostics import _t_two_sided_crit,run_bsm_adaptive
 from rustbears.uncertainty.rng import TaskIdentity,derive_task_seeds
 from rustbears.uncertainty.simulate import sampler_buffers
 from scripts.validate_v12_gate1 import ReferenceTree
@@ -69,14 +69,27 @@ def counts(sampler,n,seed):
 
 
 def report(rows,truth):
-    means=np.array([r[0] for r in rows]);ses=np.array([r[1] for r in rows])
-    cover=(means-1.96*ses<=truth)&(means+1.96*ses>=truth)
-    hit,n=int(cover.sum()),len(cover)
-    ci=[0. if hit==0 else float(beta.ppf(.025,hit,n-hit+1)),
-        1. if hit==n else float(beta.ppf(.975,hit+1,n-hit))]
-    return dict(truth=truth,replicates=n,mean_estimate=float(means.mean()),bias=float(means.mean()-truth),
-                empirical_sd=float(means.std(ddof=1)),mean_estimated_se=float(ses.mean()),
-                covered=hit,coverage=hit/n,coverage_cp95=ci)
+    means=np.array([r[0] for r in rows],float);ses=np.array([r[1] for r in rows],float)
+    avail_hits=[]
+    for r in rows:
+        if len(r)>=4:
+            lo,hi=r[2],r[3]
+            if lo is not None and hi is not None and np.isfinite([lo,hi]).all():
+                avail_hits.append(bool(lo<=truth<=hi))
+        else:
+            avail_hits.append(bool(r[0]-1.96*r[1]<=truth<=r[0]+1.96*r[1]))
+    hit,n_avail,n=int(sum(avail_hits)),len(avail_hits),len(rows)
+    if n_avail>0:
+        ci=[0. if hit==0 else float(beta.ppf(.025,hit,n_avail-hit+1)),
+            1. if hit==n_avail else float(beta.ppf(.975,hit+1,n_avail-hit))]
+        coverage=hit/n_avail
+    else:
+        ci=None;coverage=None
+    return dict(truth=truth,replicates=n,n_interval_available=n_avail,
+                n_interval_unavailable=n-n_avail,mean_estimate=float(means.mean()),
+                bias=float(means.mean()-truth),empirical_sd=float(means.std(ddof=1)),
+                mean_estimated_se=float(ses.mean()),covered=hit,coverage=coverage,
+                coverage_cp95=ci)
 
 
 def main():
@@ -118,7 +131,9 @@ def main():
             sampled=[counts(samplers[int(tree)],args.maps_per_tree,seed(r,i,"population")) for i,tree in enumerate(draw)]
             for kind in "de":
                 means=np.array([d[kind].mean() for d in sampled])
-                population[kind].append((means.mean(),means.std(ddof=1)/np.sqrt(5)))
+                m_est=float(means.mean());se_est=float(means.std(ddof=1)/np.sqrt(5))
+                tcrit=_t_two_sided_crit(.05,4)
+                population[kind].append((m_est,se_est,m_est-tcrit*se_est,m_est+tcrit*se_est))
             mapped=run_bsm_adaptive(fits[2],min_maps=min(100,args.adaptive_max),batch_size=100,
                     max_maps=args.adaptive_max,target_rmcse=.1,min_mean_count=.5,seed=seed(r,2,"adaptive"))
             stops.append(dict(replicate=r,maps=mapped.num_maps,reason=mapped.stop_reason))

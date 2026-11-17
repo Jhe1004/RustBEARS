@@ -10,7 +10,7 @@ import numpy as np
 import rustbears as b
 from scripts.validate_v12_v3_external_posterior import coalescent_tree,jc69_sequences,newick
 from scripts.validate_v12_v4_protocol import exact_moments
-from scripts.validate_v12_v4_precision import make_fit,exact_event_counts
+from scripts.validate_v12_v4_precision import make_fit,exact_event_counts,report as v4_report
 from scripts.run_uncertainty_case_study import case_model_template
 from rustbears.uncertainty.bootstrap import _nested_model
 from scripts.run_v12_revbayes_posterior import diagnostics
@@ -79,6 +79,18 @@ class ValidationProtocolTests(unittest.TestCase):
         observed=np.mean(np.array(list(seq["a"]))!=np.array(list(seq["b"])))
         truth=.75*(1-np.exp(-4*.2/3))
         self.assertLess(abs(observed-truth),6*np.sqrt(truth*(1-truth)/100000))
+
+    def test_v4_report_uses_explicit_interval_endpoints_and_retains_unavailable_counts(self):
+        summary_none=v4_report([(5.0,0.2,None,None),(5.2,0.2,None,None)],5.0)
+        self.assertEqual(summary_none["n_interval_available"],0)
+        self.assertEqual(summary_none["n_interval_unavailable"],2)
+        self.assertIsNone(summary_none["coverage"])
+        self.assertIsNone(summary_none["coverage_cp95"])
+        summary_mixed=v4_report([(5.0,0.2,4.5,5.5),(6.0,0.2,5.5,6.5),(5.1,0.2,None,None)],5.0)
+        self.assertEqual(summary_mixed["n_interval_available"],2)
+        self.assertEqual(summary_mixed["n_interval_unavailable"],1)
+        self.assertEqual(summary_mixed["covered"],1)
+        self.assertAlmostEqual(summary_mixed["coverage"],0.5)
 
 
 if __name__=="__main__":unittest.main()

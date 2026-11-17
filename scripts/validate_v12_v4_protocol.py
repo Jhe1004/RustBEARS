@@ -25,7 +25,8 @@ import rustbears as b
 from rustbears._ffi import PreparedSampler
 from rustbears.uncertainty.checkpoint import (CheckpointStore,model_manifest,
     canonical_manifest,task_fingerprint,frame_arrays)
-from rustbears.uncertainty.diagnostics import _Design,rank_status,run_bsm_adaptive
+from rustbears.uncertainty.diagnostics import (MIN_MCMC_EFFECTIVE_TREES,_Design,
+    _t_two_sided_crit,rank_status,run_bsm_adaptive)
 from rustbears.uncertainty.rng import TaskIdentity,derive_task_seeds
 from rustbears.uncertainty.simulate import sampler_buffers
 from scripts.validate_v12_gate1 import ReferenceTree
@@ -159,14 +160,15 @@ def main():
         settings["adaptive"].update(min_maps=20,batch_size=20,max_maps=100,target_rmcse=.2)
     fit_list=[make_fit(scale) for scale in (.6,.8,1,1.2,1.4)];sym=symmetric_fit()
     moments=[exact_moments(f.model,f.params) for f in fit_list]
-    source_files=[Path(__file__),ROOT/"rustbears/uncertainty/diagnostics.py",ROOT/"rustbears/uncertainty/rng.py",ROOT/"scripts/validate_v12_gate1.py"]
+    source_files=[Path(__file__),ROOT/"scripts/validate_v12_v4_precision.py",ROOT/"rustbears/uncertainty/diagnostics.py",ROOT/"rustbears/uncertainty/rng.py",ROOT/"scripts/validate_v12_gate1.py"]
     hashes={p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
     manifest=dict(protocol="V4-full-v1",mode=args.mode,seed=args.seed,formal_settings=FORMAL,full_proposal_settings=FORMAL,
                   prospectively_amended=bool(args.mode=="formal" and settings!=FORMAL),locked_budget=budget_record,
                   execution_settings=settings,sections=sections,source_sha256=hashes,
                   models=[model_manifest(f) for f in fit_list],symmetric_model=model_manifest(sym),exact_moments=moments,
+                  min_mcmc_effective_trees=MIN_MCMC_EFFECTIVE_TREES,
                   early_stop_definition="stop_reason=target_precision_met while any predeclared true-active event/route (exact mean>=min_mean_count) has sqrt(exact_variance/Mstop)/exact_mean > target_rmcse; budget-limit stops are reported separately.",
-                  statistical_interpretation="Normal intervals are pointwise approximations; report empirical coverage and binomial uncertainty without changing seeds or asserting anytime validity.")
+                  statistical_interpretation="Fixed-sample intervals use pointwise normal critical values; independent posterior-tree intervals use Student-t(df=K-1); ordered MCMC tree-chain intervals use Student-t(df=ESS-1) when effective_n_trees>=50 and are explicitly unavailable below that threshold; neither batch stopping nor selected routes receive an anytime/simultaneous guarantee.")
     manifest_path=destination/"manifest.json"
     payload=dict(task_fingerprint=task_fingerprint(manifest),manifest=canonical_manifest(manifest))
     if manifest_path.exists() and json.loads(manifest_path.read_text())!=payload:
@@ -220,8 +222,14 @@ def main():
                 record["estimates"]={}
                 for kind in "de":
                     x=np.concatenate([v[kind] for v in values]);summary=design.summarize(x,.05)
+                    lo,hi=summary["mean_mc_ci_lower"],summary["mean_mc_ci_upper"]
+                    avail=bool(np.isfinite(lo) and np.isfinite(hi))
+                    ess=summary["effective_n_trees"]
                     record["estimates"][kind]=dict(mean=summary["mean"],se=summary["se_target"],
-                        effective_n_trees=summary["effective_n_trees"],var_between_trunc=summary["var_between_trunc"])
+                        ci_lower=float(lo) if avail else None,ci_upper=float(hi) if avail else None,
+                        ci_available=avail,
+                        effective_n_trees=float(ess) if ess is not None and np.isfinite(ess) else None,
+                        var_between_trunc=summary["var_between_trunc"])
                     arrays[kind]=x
             elif section=="routes":
                 maximum=max(cfg["map_grid"]);values=raw_counts(samplers[-1].draw(1,maximum,getseed(section,rep),1,bsm=True),maximum)
@@ -235,8 +243,13 @@ def main():
                 mapped=run_bsm_adaptive(fit_list[2],seed=getseed(section,rep),**{key:cfg[key] for key in
                     ("min_maps","batch_size","max_maps","target_rmcse","min_mean_count")})
                 table=mapped.diagnostics.event_summary_df.set_index("event_type")
-                record.update(stop_reason=mapped.stop_reason,maps=mapped.num_maps,
-                    estimates={kind:dict(mean=float(table.loc[kind,"mean"]),se=float(table.loc[kind,"se_target"])) for kind in "de"})
+                adaptive_estimates={}
+                for kind in "de":
+                    lo,hi=float(table.loc[kind,"mean_mc_ci_lower"]),float(table.loc[kind,"mean_mc_ci_upper"])
+                    avail=bool(np.isfinite(lo) and np.isfinite(hi))
+                    adaptive_estimates[kind]=dict(mean=float(table.loc[kind,"mean"]),se=float(table.loc[kind,"se_target"]),
+                        ci_lower=lo if avail else None,ci_upper=hi if avail else None,ci_available=avail)
+                record.update(stop_reason=mapped.stop_reason,maps=mapped.num_maps,estimates=adaptive_estimates)
                 active={name:value for name,value in moments[2].items() if value["mean"]>=cfg["min_mean_count"]}
                 unmet=[name for name,value in active.items() if np.sqrt(value["variance"]/mapped.num_maps)/value["mean"]>cfg["target_rmcse"]]
                 record["true_precision_unmet_at_stop"]=unmet
@@ -255,8 +268,13 @@ def main():
                 statuses=Counter(r["map_grid"][str(n)]["status"] for r in selected)
                 summaries[section][str(n)]={status:dict(count=statuses[status],fraction=statuses[status]/len(selected),cp95=cp(statuses[status],len(selected))) for status in ("resolved","near_tie","unresolved")}
         else:
-            summaries[section]={kind:report([(r["estimates"][kind]["mean"],r["estimates"][kind]["se"]) for r in selected],
-                moments[2][kind]["mean"] if section in ("fixed","adaptive") else float(np.mean([v[kind]["mean"] for v in moments]))) for kind in "de"}
+            def _rows_for(kind):
+                if section=="fixed":
+                    return [(r["estimates"][kind]["mean"],r["estimates"][kind]["se"]) for r in selected]
+                return [(r["estimates"][kind]["mean"],r["estimates"][kind]["se"],
+                         r["estimates"][kind]["ci_lower"],r["estimates"][kind]["ci_upper"]) for r in selected]
+            truth_fn=lambda kind:moments[2][kind]["mean"] if section in ("fixed","adaptive") else float(np.mean([v[kind]["mean"] for v in moments]))
+            summaries[section]={kind:report(_rows_for(kind),truth_fn(kind)) for kind in "de"}
             if section=="fixed":
                 summaries[section]["per_branch"]={}
                 for kind in "de":
@@ -266,7 +284,22 @@ def main():
             if section in ("fixed_trees","independent","mcmc"):
                 for kind in "de":
                     summaries[section][kind]["between_variance_quantiles"]=np.quantile([r["estimates"][kind]["var_between_trunc"] for r in selected],[.025,.5,.975]).tolist()
-                    if section=="mcmc":summaries[section][kind]["ess_quantiles"]=np.quantile([r["estimates"][kind]["effective_n_trees"] for r in selected],[.025,.5,.975]).tolist()
+                    if section=="mcmc":
+                        ess_vals=[r["estimates"][kind]["effective_n_trees"] for r in selected if r["estimates"][kind]["effective_n_trees"] is not None]
+                        summaries[section][kind]["ess_quantiles"]=np.quantile(ess_vals,[.025,.5,.975]).tolist() if ess_vals else None
+                        truth=truth_fn(kind)
+                        t_rows=[]
+                        for r in selected:
+                            est=r["estimates"][kind];m_est,se_est,ess_est=est["mean"],est["se"],est["effective_n_trees"]
+                            if ess_est is not None and ess_est>0:
+                                crit=_t_two_sided_crit(.05,max(1.,ess_est-1.))
+                                t_rows.append((m_est,se_est,m_est-crit*se_est,m_est+crit*se_est))
+                            else:
+                                t_rows.append((m_est,se_est,None,None))
+                        summaries[section][kind]["unthresholded_diagnostics"]=dict(
+                            min_mcmc_effective_trees=MIN_MCMC_EFFECTIVE_TREES,
+                            t_plugin=report(t_rows,truth),
+                            z196_plugin=report([(r["estimates"][kind]["mean"],r["estimates"][kind]["se"]) for r in selected],truth))
             if section=="adaptive":
                 n=len(selected);early=sum(bool(r["early_stopped_quantities"]) for r in selected);caps=sum(r["stop_reason"]=="max_maps_reached" for r in selected)
                 summaries[section].update(stopping_map_quantiles=np.quantile([r["maps"] for r in selected],[0,.25,.5,.75,1]).tolist(),

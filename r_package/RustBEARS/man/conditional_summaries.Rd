@@ -85,8 +85,13 @@ no fictitious bounded-probability missing-mass correction.
 
 Fixed-tree MCSE combines within-stratum variances with squared weights.
 Population precision uses between-tree mean variability and statistic-specific
-ESS; equal tree weights are currently required. The historical 95 percent
-range of sampled histories differs from the Monte Carlo interval for their mean.
+ESS; equal tree weights are currently required. Independent tree-population
+intervals use Student-t critical values with K - 1 degrees of freedom; ordered
+MCMC tree-chain intervals use Student-t critical values with ESS - 1 degrees of
+freedom when effective_n_trees >= 50, and otherwise retain se_target and
+effective_n_trees while reporting NA interval endpoints and
+precision_target_met = FALSE. The historical 95 percent range of sampled
+histories differs from the Monte Carlo interval for their mean.
 
 Route intervals are approximate exploratory per-comparison intervals. They do
 not guarantee simultaneous coverage, selected-rank coverage, or coverage after

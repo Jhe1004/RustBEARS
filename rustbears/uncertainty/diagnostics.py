@@ -1,15 +1,28 @@
 """Mapping precision, realization spread and exploratory paired route contrasts.
 
-Intervals are nominal pointwise normal approximations. Data-selected route
-ranking and batch precision stopping do not supply simultaneous or anytime
-coverage. Unobserved and low-count quantities are explicitly not assessed.
+Fixed-sample intervals are nominal pointwise normal approximations; posterior
+tree-population intervals use Student-t critical values (df = K - 1 for
+independent trees, or df = ESS - 1 when MCMC effective_n_trees >= 50, otherwise
+explicitly unavailable NaN endpoints). Data-selected route ranking and batch
+precision stopping do not supply simultaneous or anytime coverage. Unobserved
+and low-count quantities are explicitly not assessed.
 """
 from dataclasses import dataclass
 import math
 
 import numpy as np
 import pandas as pd
+from scipy.special import betaincinv
 from scipy.stats import norm
+
+
+MIN_MCMC_EFFECTIVE_TREES = 50.0
+
+
+def _t_two_sided_crit(alpha, df):
+    """Full float64 two-sided Student-t critical multiplier via inverse incomplete beta."""
+    v = float(betaincinv(0.5, 0.5 * float(df), 1.0 - float(alpha)))
+    return math.sqrt(float(df) * v / (1.0 - v))
 
 
 def rank_status(lower, upper, tie_margin):
@@ -138,11 +151,22 @@ class _Design:
             denom = 1-float(self.tree_weights @ self.tree_weights)
             between = max(0.0, float(np.sum(self.tree_weights*(per_tree-mean)**2 -
                           self.tree_weights*(1-self.tree_weights)*tree_noise))/denom)
-        z = norm.ppf(1-alpha/2)
+        if self.target == "posterior_population":
+            if self.dependence == "independent":
+                crit = _t_two_sided_crit(alpha, len(per_tree)-1)
+                ci_lower, ci_upper = mean-crit*se, mean+crit*se
+            elif ess is not None and np.isfinite(ess) and ess >= MIN_MCMC_EFFECTIVE_TREES:
+                crit = _t_two_sided_crit(alpha, ess-1.0)
+                ci_lower, ci_upper = mean-crit*se, mean+crit*se
+            else:
+                ci_lower = ci_upper = float("nan")
+        else:
+            z = norm.ppf(1-alpha/2)
+            ci_lower, ci_upper = mean-z*se, mean+z*se
         return dict(mean=mean, se_target=se, mapping_mcse=math.sqrt(fixed_var),
                     rpi_025=_weighted_quantile(x, per_map_weight, .025),
                     rpi_975=_weighted_quantile(x, per_map_weight, .975),
-                    mean_mc_ci_lower=mean-z*se, mean_mc_ci_upper=mean+z*se,
+                    mean_mc_ci_lower=ci_lower, mean_mc_ci_upper=ci_upper,
                     var_within=float(self.weights @ variance), var_between_trunc=between,
                     stratum_mean_q025=_weighted_quantile(means, self.weights, .025),
                     stratum_mean_q975=_weighted_quantile(means, self.weights, .975),
@@ -237,8 +261,10 @@ def bsm_diagnostics(bsm_result, target_rmcse=.05, tie_margin=.25,
                                 interval_scope="exploratory selected-pair nominal interval"))
     comparison_table = pd.DataFrame(comparisons, columns=["route_a", "route_b", "mean_diff", "se_diff", "ci_lower", "ci_upper", "tie_margin", "zero_excluded", "status", "effective_n_trees", "interval_scope"])
     all_rows = pd.concat([event_table, route_table], ignore_index=True)
-    active = all_rows.loc[all_rows.assessed, "rmcse"].to_numpy()
-    met = bool(len(active) and np.isfinite(active).all() and np.all(active <= target_rmcse))
+    active_rows = all_rows.loc[all_rows.assessed]
+    active = active_rows["rmcse"].to_numpy()
+    ci_ok = bool(np.isfinite(active_rows[["mean_mc_ci_lower", "mean_mc_ci_upper"]].to_numpy(float)).all()) if len(active_rows) else False
+    met = bool(len(active) and ci_ok and np.isfinite(active).all() and np.all(active <= target_rmcse))
     stop_reason = getattr(bsm_result, "stop_reason", "fixed_count")
     if stop_reason not in ("fixed_count", "target_precision_met", "max_maps_reached"):
         raise ValueError("unknown BSM stop_reason")
