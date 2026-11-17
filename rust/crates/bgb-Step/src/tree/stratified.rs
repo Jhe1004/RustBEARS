@@ -114,6 +114,7 @@ pub struct CompiledStratifiedContext {
     down_rows: Vec<usize>,
     tip_routes: Vec<(usize, Route)>,
     layers: Vec<Layer>,
+    root_prior: Vec<f64>,
     pool: Arc<rayon::ThreadPool>,
     scratch: Scratch,
 }
@@ -287,6 +288,21 @@ impl CompiledStratifiedContext {
             current_tips = pieces;
         }
         input.finish()?;
+        let mut root_prior = Vec::new();
+        if let Some(oldest) = specs.last() {
+            for piece in &oldest.pieces {
+                if let Piece::Subtree(sub) = piece {
+                    if sub.older.is_none()
+                        && sub.master_nodes.get(sub.tree.root) == Some(&root)
+                        && !sub.tree.prior.is_empty()
+                    {
+                        root_prior.resize(n, 0.0);
+                        write_columns(&mut root_prior, &sub.tree.prior, &oldest.columns);
+                        break;
+                    }
+                }
+            }
+        }
         Ok(Self {
             n,
             tip_count: tips,
@@ -298,6 +314,7 @@ impl CompiledStratifiedContext {
             down_rows,
             tip_routes,
             layers: specs,
+            root_prior,
             pool,
             scratch: Scratch {
                 cond_table: vec![0.0; rows * n],
@@ -309,20 +326,277 @@ impl CompiledStratifiedContext {
         })
     }
 
+    fn validate_contract_context(&self, contract: u32) -> Result<(), String> {
+        let strict_contract = contract != 0 || !self.root_prior.is_empty();
+        if self.null != 1 || self.tip_routes.iter().any(|&(layer, _)| layer != 0) {
+            return Err(
+                "UnsupportedModelContractError: stratified probability contracts require include_null_range=true and contemporaneous present-day tips".into(),
+            );
+        }
+        let oldest_idx = self.layers.len() - 1;
+        for (i, layer) in self.layers.iter().enumerate() {
+            if layer.q.is_none()
+                || layer.clado.is_none()
+                || layer.geo_mask.len() != self.n
+                || !layer.geo_mask[0]
+                || layer.columns.len() <= 1
+            {
+                return Err(
+                    "UnsupportedModelContractError: stratified probability contracts exclude trait models and require nonempty geographic strata with an allowed empty state".into(),
+                );
+            }
+            for piece in &layer.pieces {
+                match piece {
+                    Piece::Branch(b) => {
+                        let valid_up = if strict_contract {
+                            b.up_length == Some(b.original_length)
+                        } else {
+                            b.up_length.is_none_or(|u| u == b.original_length)
+                        };
+                        if b.down_length != Some(b.original_length)
+                            || !valid_up
+                            || !b.original_length.is_finite()
+                            || b.original_length <= 0.0
+                        {
+                            return Err(
+                                "UnsupportedModelContractError: stratified probability contracts reject fossil-hook or truncated branches".into(),
+                            );
+                        }
+                    }
+                    Piece::Subtree(s) => {
+                        let master_is_root =
+                            s.older.is_none() && s.master_nodes.get(s.tree.root) == Some(&self.root);
+                        if !s.up_fixes.is_empty()
+                            || !s.tree.fixed.iter().all(Vec::is_empty)
+                            || s.tree.trait_len != 0
+                            || s.tree.kind != 1
+                            || s.tree.method != 3
+                            || s.tree.steps.iter().any(|st| s.tree.hook(st))
+                            || (i == oldest_idx && (!master_is_root || s.tree.root_edge.is_some()))
+                        {
+                            return Err(
+                                "UnsupportedModelContractError: stratified probability contracts reject fixed internal nodes, fossil hooks and root edges".into(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for i in 0..oldest_idx {
+            let young = &self.layers[i].geo_mask;
+            let old = &self.layers[i + 1].geo_mask;
+            if old.iter().zip(young).any(|(&allowed_old, &allowed_young)| allowed_old && !allowed_young)
+            {
+                return Err(
+                    "UnsupportedModelContractError: probability contracts require monotone state-space emergence across time strata".into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn evaluate_contract(
+        &mut self,
+        a: &[&[f64]],
+        mode: PrecisionMode,
+        fused: bool,
+        contract: u32,
+        replacement_tips: &[f64],
+    ) -> Result<Vec<Vec<f64>>, String> {
+        if contract > 2 {
+            return Err("unknown likelihood contract".into());
+        }
+        self.validate_contract_context(contract)?;
+        if a.len() < 2 {
+            return Err("incomplete stratified buffers".into());
+        }
+        let candidate_tips = if replacement_tips.is_empty() {
+            a[1]
+        } else {
+            replacement_tips
+        };
+        if candidate_tips.len() != self.tip_count * self.n
+            || candidate_tips.iter().any(|x| !x.is_finite() || *x < 0.0)
+        {
+            return Err("invalid tip likelihood vector".into());
+        }
+        let present_mask = &self.layers[0].geo_mask;
+        if matches!(contract, 1 | 2) {
+            for i in 0..self.tip_count {
+                if (0..self.n).any(|s| candidate_tips[i + self.tip_count * s] > 0.0 && !present_mask[s])
+                {
+                    return Err(
+                        "tip likelihoods assign positive mass to a state disallowed in the present stratum".into(),
+                    );
+                }
+                if !(0..self.n).any(|s| candidate_tips[i + self.tip_count * s] > 0.0)
+                    || (contract == 1 && candidate_tips[i] != 0.0)
+                {
+                    return Err("tip likelihoods violate probability contract".into());
+                }
+            }
+        }
+        let oldest_mask = &self.layers.last().unwrap().geo_mask;
+        if self.root_prior.is_empty() {
+            if contract != 0 {
+                return Err("missing root likelihood weights for probability contract".into());
+            }
+        } else if self.root_prior.len() != self.n
+            || self.root_prior.iter().any(|x| !x.is_finite() || *x < 0.0)
+            || self.root_prior.iter().sum::<f64>() <= 0.0
+            || self
+                .root_prior
+                .iter()
+                .zip(oldest_mask)
+                .any(|(&w, &ok)| w > 0.0 && !ok)
+            || (contract == 1 && self.root_prior[0] != 0.0)
+        {
+            return Err("invalid root likelihood weights".into());
+        }
+        self.evaluate_inner(
+            a,
+            Some(candidate_tips),
+            mode,
+            fused,
+            if contract == 0 { 3 } else { contract },
+        )
+    }
+
     pub fn evaluate(
         &mut self,
         a: &[&[f64]],
         mode: PrecisionMode,
         fused: bool,
     ) -> Result<Vec<Vec<f64>>, String> {
+        self.evaluate_inner(a, None, mode, fused, 0)
+    }
+
+    fn run_downpass_only(
+        &mut self,
+        layer_inputs: &[&[&[f64]]],
+        tip_input: &[f64],
+        mode: PrecisionMode,
+        fused: bool,
+        internal_contract: u32,
+    ) -> Result<f64, String> {
+        let options = Options {
+            ancestors: false,
+            full: false,
+            keep_table: true,
+            ttl_from_table: true,
+            rootedge: false,
+        };
+        let n = self.n;
+        let scratch = &mut self.scratch;
+        scratch.cond_table.fill(0.0);
+        scratch.all_cond.clear();
+        scratch.tips.resize(tip_input.len(), 0.0);
+        for tip in 0..self.tip_count {
+            let row = row_mut(&mut scratch.tips, tip, n);
+            for j in 0..n {
+                row[j] = tip_input[tip + self.tip_count * j];
+            }
+            row_mut(&mut scratch.cond_table, tip, n).copy_from_slice(row);
+            normalize(row);
+        }
+        for (layer, &down) in self.layers.iter_mut().zip(layer_inputs) {
+            let width = layer.columns.len();
+            let propagation = build_propagator(width, layer.q.as_ref(), down, mode, fused)?;
+            let mut events = build_clado(width, self.null, 1, 3, layer.clado.as_ref(), down, mode)?;
+            events.probability_contract = internal_contract != 0;
+            events.complete_empty = internal_contract == 2;
+            let layer_down = self.pool.install(|| {
+                layer
+                    .pieces
+                    .par_iter_mut()
+                    .map(|piece| {
+                        piece.downpass(
+                            n,
+                            &layer.columns,
+                            &layer.geo_mask,
+                            &scratch.tips,
+                            &propagation,
+                            &events,
+                            down[0][1] != 0.0,
+                            down[0][3] as usize,
+                            &options,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })?;
+            scratch.next_tips.resize(layer.pieces.len() * n, 0.0);
+            for (j, (piece, result)) in layer.pieces.iter().zip(layer_down).enumerate() {
+                piece.commit_down(&layer.columns, result, j, n, scratch, &options)?;
+            }
+            std::mem::swap(&mut scratch.tips, &mut scratch.next_tips);
+        }
+        if self.ttl_rows.len() != self.node_count {
+            return Err("master likelihood row count".into());
+        }
+        log_row_sums(
+            self.ttl_rows
+                .iter()
+                .map(|&i| row(&scratch.cond_table, i, n)),
+        )
+    }
+
+    fn evaluate_inner(
+        &mut self,
+        a: &[&[f64]],
+        tip_override: Option<&[f64]>,
+        mode: PrecisionMode,
+        fused: bool,
+        internal_contract: u32,
+    ) -> Result<Vec<Vec<f64>>, String> {
         let mut input = Buffers { remaining: a };
         let options = Options::decode(input.next()?)?;
-        let tip_input = input.next()?;
+        let raw_tip_input = input.next()?;
+        let tip_input = tip_override.unwrap_or(raw_tip_input);
         if tip_input.len() != self.tip_count * self.n
             || options.ancestors && !options.ttl_from_table
+            || (internal_contract != 0 && (!options.keep_table || !options.ttl_from_table))
         {
             return Err("unsupported stratified tip dimensions or ancestor options".into());
         }
+
+        let mut layer_pairs = Vec::with_capacity(self.layers.len());
+        for _ in 0..self.layers.len() {
+            let [separate] = input.next()? else {
+                return Err("missing uppass switch".into());
+            };
+            let down = input.take(MODEL_BUFFERS)?;
+            let up = if *separate != 0.0 {
+                input.take(MODEL_BUFFERS)?
+            } else {
+                down
+            };
+            if down[0].len() != 4 || up[0].len() != 4 {
+                return Err("invalid stratum model flags".into());
+            }
+            layer_pairs.push((*separate != 0.0, down, up));
+        }
+        input.finish()?;
+
+        let log_survival = if internal_contract == 1 {
+            let present_mask = &self.layers[0].geo_mask;
+            let mut survival_tips = vec![0.0; self.tip_count * self.n];
+            for s in self.null..self.n {
+                if present_mask[s] {
+                    for tip in 0..self.tip_count {
+                        survival_tips[tip + self.tip_count * s] = 1.0;
+                    }
+                }
+            }
+            let down_only: Vec<_> = layer_pairs.iter().map(|&(_, down, _)| down).collect();
+            let value =
+                self.run_downpass_only(&down_only, &survival_tips, mode, fused, internal_contract)?;
+            if !value.is_finite() {
+                return Err("zero or invalid tip-survival probability".into());
+            }
+            value
+        } else {
+            f64::NAN
+        };
 
         let n = self.n;
         let scratch = &mut self.scratch;
@@ -347,22 +621,12 @@ impl CompiledStratifiedContext {
             }
         }
         let mut upper_models = Vec::with_capacity(self.layers.len());
-        for layer in &mut self.layers {
-            let [separate] = input.next()? else {
-                return Err("missing uppass switch".into());
-            };
-            let down = input.take(MODEL_BUFFERS)?;
-            let up = if *separate != 0.0 {
-                input.take(MODEL_BUFFERS)?
-            } else {
-                down
-            };
-            if down[0].len() != 4 || up[0].len() != 4 {
-                return Err("invalid stratum model flags".into());
-            }
+        for (layer, (separate, down, up)) in self.layers.iter_mut().zip(layer_pairs) {
             let width = layer.columns.len();
             let propagation = build_propagator(width, layer.q.as_ref(), down, mode, fused)?;
-            let events = build_clado(width, self.null, 1, 3, layer.clado.as_ref(), down, mode)?;
+            let mut events = build_clado(width, self.null, 1, 3, layer.clado.as_ref(), down, mode)?;
+            events.probability_contract = internal_contract != 0;
+            events.complete_empty = internal_contract == 2;
             let layer_down = self.pool.install(|| {
                 layer
                     .pieces
@@ -395,10 +659,14 @@ impl CompiledStratifiedContext {
                 } else {
                     build_propagator(width, layer.q.as_ref(), up, mode, fused)?
                 };
-                let mut up_events = if *separate == 0.0 {
+                let mut up_events = if !separate {
                     events
                 } else {
-                    build_clado(width, self.null, 1, 3, layer.clado.as_ref(), up, mode)?
+                    let mut built =
+                        build_clado(width, self.null, 1, 3, layer.clado.as_ref(), up, mode)?;
+                    built.probability_contract = internal_contract != 0;
+                    built.complete_empty = internal_contract == 2;
+                    built
                 };
                 // The historical stratified hook constructs diagonal events in
                 // geographic state space even for trait-expanded probabilities.
@@ -406,11 +674,18 @@ impl CompiledStratifiedContext {
                 upper_models.push((up_prop, up_events));
             }
         }
-        input.finish()?;
 
-        let likelihood = if options.ttl_from_table {
+        let raw_likelihood = if options.ttl_from_table {
             if self.ttl_rows.len() != self.node_count {
                 return Err("master likelihood row count".into());
+            }
+            if internal_contract != 0
+                && self
+                    .ttl_rows
+                    .iter()
+                    .any(|&i| sum(row(&scratch.cond_table, i, n)) < 0.0)
+            {
+                return Err("negative likelihood requires original R warning semantics".into());
             }
             log_row_sums(
                 self.ttl_rows
@@ -431,8 +706,17 @@ impl CompiledStratifiedContext {
                     .take(count.saturating_sub(usize::from(!options.rootedge))),
             )?
         };
+        let likelihood = raw_likelihood - if internal_contract == 1 { log_survival } else { 0.0 };
+        if internal_contract != 0 && options.ancestors && !likelihood.is_finite() {
+            return Err("ancestral probabilities are undefined for zero-probability data".into());
+        }
+        let emit_contract_meta = matches!(internal_contract, 1 | 2);
         if !options.full && !options.ancestors {
-            return Ok(vec![vec![likelihood]]);
+            return Ok(vec![if emit_contract_meta {
+                vec![likelihood, log_survival]
+            } else {
+                vec![likelihood]
+            }]);
         }
 
         let all_condlikes: Vec<_> = scratch
@@ -466,7 +750,8 @@ impl CompiledStratifiedContext {
                 return Err("master downpass root row missing".into());
             }
             let down_table = column_major(&scratch.down_table, self.table_count, n);
-            let (top_up, bottom_up) = self.uppass(upper_models, &bottom_down)?;
+            let (top_up, bottom_up) =
+                self.uppass(upper_models, &bottom_down, internal_contract != 0)?;
             let top_marginal = marginal(&top_down, &top_up, self.root, n)?;
             let bottom_marginal = marginal(&bottom_down, &bottom_up, self.root, n)?;
             out.push(down_table);
@@ -481,6 +766,9 @@ impl CompiledStratifiedContext {
                 out.push(column_major(values, self.node_count, n));
             }
         }
+        if emit_contract_meta {
+            out[0].push(log_survival);
+        }
         Ok(out)
     }
 
@@ -488,11 +776,16 @@ impl CompiledStratifiedContext {
         &mut self,
         models: Vec<(Propagator, Clado)>,
         down_bottom: &[f64],
+        probability_contract: bool,
     ) -> Result<(Vec<f64>, Vec<f64>), String> {
         let n = self.n;
         let mut top = vec![0.0; self.node_count * n];
         let mut bottom = vec![0.0; self.node_count * n];
-        row_mut(&mut top, self.root, n).fill(1.0 / n as f64);
+        if probability_contract && !self.root_prior.is_empty() {
+            row_mut(&mut top, self.root, n).copy_from_slice(&self.root_prior);
+        } else {
+            row_mut(&mut top, self.root, n).fill(1.0 / n as f64);
+        }
         let mut routes: Vec<Vec<TipBoundary>> =
             (0..self.layers.len()).map(|_| Vec::new()).collect();
         let mut last_bottom = None;
@@ -520,6 +813,7 @@ impl CompiledStratifiedContext {
                                 &layer.columns,
                                 &layer.geo_mask,
                                 self.null,
+                                c.probability_contract,
                             )?
                         } else {
                             start.to_vec()
@@ -548,6 +842,7 @@ impl CompiledStratifiedContext {
                                 &layer.columns,
                                 &layer.geo_mask,
                                 self.null,
+                                c.probability_contract,
                             )?;
                             (gather(&output, &layer.columns), gather(bot, &layer.columns))
                         } else {
@@ -798,9 +1093,10 @@ fn propagate_boundary(
     columns: &[usize],
     geo_mask: &[bool],
     null: usize,
+    probability_contract: bool,
 ) -> Result<Vec<f64>, String> {
     let mut local = p.apply(length, &gather(start, columns), true)?;
-    if null != 0 {
+    if !probability_contract && null != 0 {
         local[0] = 0.0;
     }
     normalize(&mut local);

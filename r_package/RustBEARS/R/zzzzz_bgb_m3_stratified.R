@@ -49,7 +49,11 @@
          up = as.numeric(likes[, trait_mask, drop = FALSE]))
 }
 
-.bgb_m3_branch_spec <- function(master, row, length, minimum) {
+.bgb_m3_branch_spec <- function(master, row, length, minimum, exact_ages = FALSE) {
+    if (exact_ages) {
+        ok <- is.finite(length) && length > 0 && master$edge.length[row] >= minimum && !isTRUE(master$fossils[row])
+        return(c(length, ok, length, ok, length))
+    }
     age <- master$time_bp[row]
     top <- master$time_top[row]
     bottom <- master$time_bot[row]
@@ -65,7 +69,8 @@
     c(length, down, duration, up, duration)
 }
 
-.bgb_m3_compile <- function(inputs, phy, areas, states, n, minimum, include_null, fixnode, fixlikes) {
+.bgb_m3_compile <- function(inputs, phy, areas, states, n, minimum, include_null, fixnode, fixlikes,
+                            exact_ages = FALSE, root_prior = numeric()) {
     sections <- inputs$tree_sections_list
     master <- inputs$master_table
     k <- length(inputs$timeperiods)
@@ -77,6 +82,13 @@
     ntraits <- if (trait) ncol(inputs$trait_Pmat_txt) else 1L
     stopifnot(k >= 2L, length(sections) == k, is.data.frame(master), nr >= nt,
               n == length(states) * ntraits, is.finite(minimum), na > 0)
+    exact_node_ages <- parent_of <- NULL
+    if (exact_ages) {
+        depths <- ape::node.depth.edgelength(phy)
+        exact_node_ages <- max(depths[seq_len(nt)]) - depths
+        parent_of <- integer(nn)
+        parent_of[phy$edge[, 2]] <- phy$edge[, 1]
+    }
     groups <- split(seq_len(nr), paste(master$stratum, master$piecenum, master$piececlass))
     rows_by_node <- split(seq_len(nr), paste(master$stratum, master$node))
     oldest_route <- function(i, node) {
@@ -109,6 +121,8 @@
     }
     empty <- numeric()
     for (i in seq_len(k)) {
+        t_top <- if (i == 1L) 0 else inputs$timeperiods[i - 1L]
+        t_bot <- inputs$timeperiods[i]
         section <- sections[[i]]
         pieces <- section$return_pieces_list
         mask <- .bgb_m3_layer_mask(inputs, states, i, include_null)
@@ -126,7 +140,11 @@
                 row <- groups[[paste(i, j, "subbranch")]]
                 slot <- which(current_labels == section$return_pieces_basenames[[j]])
                 stopifnot(length(row) == 1L, length(slot) == 1L, length(piece) == 1L)
-                spec <- .bgb_m3_branch_spec(master, row, piece, minimum)
+                seg_len <- if (exact_ages) {
+                    mnode <- master$node[row]
+                    min(t_bot, exact_node_ages[parent_of[mnode]]) - max(t_top, exact_node_ages[mnode])
+                } else piece
+                spec <- .bgb_m3_branch_spec(master, row, seg_len, minimum, exact_ages = exact_ages)
                 config <- c(config, list(c(0, slot - 1L, row - 1L, spec),
                                          oldest_route(i, master$node[row])))
             } else {
@@ -139,25 +157,41 @@
                 slots <- which(current_labels %in% piece$tip.label)
                 stopifnot(length(slots) == piece_tips, !anyNA(rows),
                           all(master$node.type[rows] %in% c("internal", "tip", "root")))
-                root_length <- if (is.null(piece$root.edge)) 0 else piece$root.edge
                 piece_root <- piece$edge[nrow(piece$edge), 1]
-                older <- if (root_length > 0) oldest_route(i, master$node[rows[piece_root]]) else empty
+                master_piece_root <- master$node[rows[piece_root]]
+                if (exact_ages) {
+                    edge_lengths <- vapply(piece$edge[, 2], function(lc) {
+                        mc <- master$node[rows[lc]]
+                        exact_node_ages[parent_of[mc]] - max(t_top, exact_node_ages[mc])
+                    }, numeric(1))
+                    root_length <- if (master_piece_root == root) 0 else t_bot - exact_node_ages[master_piece_root]
+                } else {
+                    edge_lengths <- piece$edge.length
+                    root_length <- if (is.null(piece$root.edge)) 0 else piece$root.edge
+                }
+                older <- if (root_length > 0) oldest_route(i, master_piece_root) else empty
                 fixes <- .bgb_m3_fixes(master, rows, fixnode, fixlikes, mask, trait_mask)
+                piece_prior <- if (i == k && master_piece_root == root && length(root_prior))
+                    root_prior[which(trait_mask)] else empty
                 subtree_config <- list(c(piece_tips, local_n, piece_nodes, minimum, include_null,
                                          TRUE, root_length, 1, 3, 0),
-                                       piece$edge - 1L, piece$edge.length, empty, fixes$nodes, fixes$down,
-                                       empty, empty, empty, empty, empty, empty, c(0, 0))
+                                       piece$edge - 1L, edge_lengths, empty, fixes$nodes, fixes$down,
+                                       empty, piece_prior, empty, empty, empty, empty, c(0, 0))
                 config <- c(config, list(1, slots - 1L, rows - 1L, master$node[rows] - 1L,
                                          master$SUBnode.type[rows] == "root", older,
                                          fixes$nodes, fixes$up), subtree_config)
             }
         }
         current_labels <- section$tree_to_chainsaw$tip.label
-        num_mat <- function(m) { out <- as.matrix(m); storage.mode(out) <- "double"; out }
+        num_mat <- function(m, diag_one = FALSE) {
+            out <- as.matrix(m); storage.mode(out) <- "double"
+            if (diag_one) diag(out)[is.na(diag(out)) | diag(out) == 0] <- 1
+            out
+        }
         layers[[i]] <- list(states = local_states, width = local_n,
-                            distances = num_mat(geography("list_of_distances_mats", i, ones)),
-                            env_down = num_mat(geography("list_of_envdistances_mats", i, ones)),
-                            env_up = num_mat(geography("list_of_envdistances_mats", 1L, ones)),
+                            distances = num_mat(geography("list_of_distances_mats", i, ones), TRUE),
+                            env_down = num_mat(geography("list_of_envdistances_mats", i, ones), TRUE),
+                            env_up = num_mat(geography("list_of_envdistances_mats", 1L, ones), TRUE),
                             manual = num_mat(geography("list_of_dispersal_multipliers_mats", i, ones)),
                             area = as.numeric(unlist(geography("list_of_area_of_areas", i, rep(1, na)), use.names = FALSE)),
                             prior_width = max(lengths(clado_states)))
@@ -309,14 +343,42 @@
 
 .bgb_m3_eval <- function(inputs, phy, areas, states, tips, minimum, include_null, fixnode, fixlikes,
                          sparse, return_what, ancestors, return_table, ttl_from_table, rootedge, method) {
-    if (identical(.bgb_stratified_engine(), "R")) return(NULL)
-    flags <- list(include_null, sparse, ancestors, return_table, ttl_from_table, rootedge)
-    if (!all(vapply(flags, function(x) is.logical(x) && length(x) == 1L && !is.na(x), logical(1))) ||
-        !is.matrix(tips) || length(inputs$timeperiods) < 2L || is.null(inputs$master_table) ||
-        !identical(inputs$include_null_range, include_null) || !identical(as.numeric(method), 3) ||
-        inputs$printlevel >= 3 || ancestors && !ttl_from_table ||
-        identical(return_what, "all") && !(ttl_from_table || return_table))
+    contract <- .bgb_v12_runtime$contract
+    root_spec <- .bgb_v12_runtime$root_prior
+    contract_native <- (contract != 0L || !is.null(root_spec))
+    if (identical(.bgb_stratified_engine(), "R")) {
+        if (contract_native)
+            stop("UnsupportedModelContractError: stratified probability contracts require native evaluation")
         return(NULL)
+    }
+    flags <- list(include_null, sparse, ancestors, return_table, ttl_from_table, rootedge)
+    valid_flags <- all(vapply(flags, function(x) is.logical(x) && length(x) == 1L && !is.na(x), logical(1))) &&
+        is.matrix(tips) && length(inputs$timeperiods) >= 2L && !is.null(inputs$master_table) &&
+        identical(inputs$include_null_range, include_null) && identical(as.numeric(method), 3) &&
+        !(ancestors && !ttl_from_table) &&
+        !(identical(return_what, "all") && !(ttl_from_table || return_table))
+    if (!valid_flags || (!contract_native && inputs$printlevel >= 3)) {
+        if (contract_native)
+            stop("UnsupportedModelContractError: this stratified configuration is outside the validated probability contract")
+        return(NULL)
+    }
+    resolved_root <- NULL
+    if (contract_native) {
+        if (!is.null(inputs$trait) || length(fixnode) || !isTRUE(include_null) ||
+            any(phy$edge.length < minimum) || any(isTRUE(inputs$master_table$fossils)))
+            stop("UnsupportedModelContractError: stratified probability contracts reject traits, fixed internal nodes and fossils")
+        p_tab <- inputs$BioGeoBEARS_model_object@params_table
+        if (!.bgb_v12_standard_clado(p_tab[c("s", "v", "j", "y"), "est"]))
+            stop("UnsupportedModelContractError: only the six standard cladogenesis models are validated")
+        k_len <- length(inputs$timeperiods)
+        masks <- lapply(seq_len(k_len), function(i) .bgb_m3_layer_mask(inputs, states, i, include_null))
+        for (i in seq_len(k_len - 1L)) {
+            if (any(masks[[i + 1L]] & !masks[[i]]))
+                stop("UnsupportedModelContractError: probability contracts require monotone state-space emergence across time strata")
+        }
+        resolved_root <- .bgb_v12_resolve_root(root_spec, states, contract, allowed = masks[[k_len]])
+        .bgb_v12_runtime$last_root <- resolved_root
+    }
     runtime <- .bgb_m3_runtime
     precision <- .bgb_precision()
     threads <- as.integer(.bgb_m2_runtime$threads)
@@ -325,14 +387,17 @@
               "list_of_envdistances_mats", "list_of_dispersal_multipliers_mats", "list_of_area_of_areas",
               "trait", "trait_Pmat_txt", "jts_txt_matrix")
     signature <- list(inputs[keys], phy, areas, states, dim(tips), minimum, include_null,
-                      fixnode, fixlikes, sparse, precision, threads)
+                      fixnode, fixlikes, sparse, precision, threads, contract_native,
+                      if (contract_native) resolved_root$likelihood_weights else NULL)
     evaluated <- tryCatch(withCallingHandlers({
         hit <- which(vapply(runtime$contexts, function(entry) identical(entry$signature, signature), logical(1)))
         if (length(hit)) {
             entry <- runtime$contexts[[hit[1L]]]
             runtime$contexts <- c(list(entry), runtime$contexts[-hit[1L]])
         } else {
-            entry <- .bgb_m3_compile(inputs, phy, areas, states, ncol(tips), minimum, include_null, fixnode, fixlikes)
+            entry <- .bgb_m3_compile(inputs, phy, areas, states, ncol(tips), minimum, include_null, fixnode, fixlikes,
+                                     exact_ages = contract_native,
+                                     root_prior = if (contract_native) resolved_root$likelihood_weights else numeric())
             entry$signature <- signature
             entry$handle <- .Call(.bgb_c_bgb_strat_handle)
             if (length(runtime$contexts) == 4L)
@@ -344,7 +409,7 @@
         models <- lapply(entry$layers, function(layer) {
             down <- .bgb_m3_layer_model(layer, layer$env_down, inputs, seq_along(areas) - 1L, sparse, entry$trait, FALSE)
             different_j <- !sparse && jump != 0 && !is.null(layer$upper_loop_m)
-            separate <- ancestors && (entry$trait || different_j || !identical(layer$env_down, layer$env_up))
+            separate <- !contract_native && ancestors && (entry$trait || different_j || !identical(layer$env_down, layer$env_up))
             if (separate) {
                 up <- .bgb_m3_layer_model(layer, layer$env_up, inputs, seq_along(areas) - 1L, sparse, entry$trait, TRUE)
                 c(list(1), down, up)
@@ -354,14 +419,19 @@
         })
         buffers <- c(list(c(ancestors, full, return_table, ttl_from_table, rootedge), tips),
                      unlist(models, recursive = FALSE))
-        native <- .Call(.bgb_c_bgb_tree, entry$handle, entry$config, buffers, precision, threads)
+        native <- if (contract_native)
+            .Call(.bgb_c_bgb_tree_contract, entry$handle, entry$config, buffers, precision, threads, contract, numeric())
+        else
+            .Call(.bgb_c_bgb_tree, entry$handle, entry$config, buffers, precision, threads)
         list(native = native, entry = entry, full = full)
     }, warning = function(w) stop(conditionMessage(w), call. = FALSE)), error = identity)
     if (inherits(evaluated, "error")) {
+        if (contract_native) stop(evaluated)
         runtime$fallbacks <- runtime$fallbacks + 1L
         runtime$last_fallback <- conditionMessage(evaluated)
         return(NULL)
     }
+    .bgb_v12_runtime$last_log_survival <- if (contract == 1L) tail(evaluated$native[[1]], 1L) else NULL
     runtime$native_calls <- runtime$native_calls + 1L
     native <- evaluated$native
     entry <- evaluated$entry

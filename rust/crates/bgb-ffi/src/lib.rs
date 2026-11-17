@@ -677,8 +677,8 @@ pub unsafe extern "C" fn bgb_context_evaluate_contract(
             Context::Single(tree) => {
                 tree.evaluate_contract(&args, mode, precision == 2, contract, replacement)
             }
-            Context::Stratified(_) => {
-                Err("UnsupportedModelContractError: Tier-1a supports single-layer contexts".into())
+            Context::Stratified(tree) => {
+                tree.evaluate_contract(&args, mode, precision == 2, contract, replacement)
             }
         }
     }));

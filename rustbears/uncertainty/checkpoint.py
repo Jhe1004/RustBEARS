@@ -67,11 +67,12 @@ def model_manifest(fit_or_model):
                   rng_layout="rustbears-task-identity-v1", tree=m.tree, geography=m.geog,
                   config=replace(m.config, tree=m.tree, geog=m.geog,
                                  distances=m.dist, envdistances=m.env,
-                                 dispersal_multipliers=m.manual, area_of_areas=m.area_size),
+                                 dispersal_multipliers=m.manual, area_of_areas=m.area_size,
+                                 areas_allowed=m.allowed_mats, areas_adjacency=m.adjacency_mats),
                   model=m.model, states=m.states, areas=m.areas,
                   tips=m.tips, root_likelihood_weights=m.root_likelihood_weights,
                   root_sampling_probs=m.root_sampling_probs)
-    for name in ("times", "masks", "dist", "env", "manual", "area_size", "fixes", "fixlikes"):
+    for name in ("times", "masks", "dist", "env", "manual", "area_size", "allowed_mats", "adjacency_mats", "fixes", "fixlikes"):
         if hasattr(m, name):
             result[name] = getattr(m, name)
     if fit is not None:

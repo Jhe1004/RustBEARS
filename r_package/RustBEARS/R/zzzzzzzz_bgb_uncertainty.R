@@ -23,7 +23,15 @@
     if(!is.null(res$resolved_root_prior))return(res$resolved_root_prior$likelihood_weights)
     n<-ncol(res$ML_marginal_prob_each_state_at_branch_top_AT_node)
     if(is.null(n))stop('fit needs ancestral-state output')
-    c(if(isTRUE(res$inputs$include_null_range))0,rep(1,n-as.integer(isTRUE(res$inputs$include_null_range))))
+    w<-c(if(isTRUE(res$inputs$include_null_range))0,rep(1,n-as.integer(isTRUE(res$inputs$include_null_range))))
+    if(is.numeric(res$inputs$timeperiods)&&length(res$inputs$timeperiods)>1L) {
+        states<-.bgb_v12_all_states(res$inputs)
+        if(length(states)==n) {
+            mask<-.bgb_v12_layer_mask(res$inputs,states,length(res$inputs$timeperiods),isTRUE(res$inputs$include_null_range))
+            w[!mask]<-0
+        }
+    }
+    w
 }
 .bgb_u_compatible <- function(fits) {
     if(!length(fits))stop('at least one fit is required')

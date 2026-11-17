@@ -237,25 +237,58 @@ impl PreparedTreeSampler {
             return Err("invalid BSM tree dimensions".into());
         }
         if conditioning != 3 {
-            if source.layers.len() != 1
+            if source.layers.is_empty()
                 || input.hooks.iter().any(|x| *x != 0.0)
                 || input.fixes.iter().any(|x| *x != 1.0)
-                || source.layers[0].allowed.iter().any(|x| *x != 1.0)
             {
-                return Err("UnsupportedModelContractError: prepared Tier-1a sampler requires one layer, no hooks or fixed-node constraints".into());
+                return Err(
+                    "UnsupportedModelContractError: prepared sampler rejects fossil hooks and fixed-node constraints".into(),
+                );
+            }
+            if input
+                .states
+                .first()
+                .map_or(true, |x| !x.iter().all(|i| *i < 0))
+            {
+                return Err(
+                    "UnsupportedModelContractError: prepared sampler requires an explicit empty state at index 0".into(),
+                );
+            }
+            for layer in source.layers {
+                if layer.allowed.len() != n
+                    || layer.allowed.iter().any(|&a| a != 0.0 && a != 1.0)
+                    || layer.allowed[0] != 1.0
+                    || !layer.allowed[1..].iter().any(|&a| a == 1.0)
+                {
+                    return Err(
+                        "UnsupportedModelContractError: each stratum requires a 0/1 allowed mask with the empty state and at least one occupied state".into(),
+                    );
+                }
+            }
+            for i in 0..source.layers.len() - 1 {
+                if source.layers[i + 1]
+                    .allowed
+                    .iter()
+                    .zip(source.layers[i].allowed)
+                    .any(|(&old, &young)| old != 0.0 && young == 0.0)
+                {
+                    return Err(
+                        "UnsupportedModelContractError: probability contracts require monotone state-space emergence across time strata".into(),
+                    );
+                }
             }
             if root_weights.len() != n
                 || root_weights.iter().any(|x| !x.is_finite() || *x < 0.0)
                 || root_weights.iter().sum::<f64>() <= 0.0
+                || root_weights
+                    .iter()
+                    .zip(source.layers[input.layers_at_node[input.root]].allowed)
+                    .any(|(&w, &ok)| w > 0.0 && ok == 0.0)
             {
                 return Err("invalid sampler root weights".into());
             }
             if conditioning != 0
                 && ((root_weights.iter().sum::<f64>() - 1.0).abs() > 1e-12
-                    || input
-                        .states
-                        .first()
-                        .map_or(true, |x| !x.iter().all(|i| *i < 0))
                     || (matches!(conditioning, 1 | 4) && root_weights[0] != 0.0))
             {
                 return Err(
@@ -363,17 +396,36 @@ impl PreparedTreeSampler {
             Ok(result)
         };
         for i in 0..nt {
+            let tip_layer = &layers[input.layers_at_node[i]];
             for s in 0..n {
                 down[i][s] = match conditioning {
                     1 | 4 => {
-                        if s == 0 {
+                        if s == 0 || tip_layer.allowed[s] == 0.0 {
                             0.0
                         } else {
                             1.0
                         }
                     }
-                    2 => 1.0,
-                    _ => input.tips[i + nt * s],
+                    2 => {
+                        if tip_layer.allowed[s] == 0.0 {
+                            0.0
+                        } else {
+                            1.0
+                        }
+                    }
+                    _ => {
+                        let v = input.tips[i + nt * s];
+                        if conditioning == 0 && v > 0.0 && tip_layer.allowed[s] == 0.0 {
+                            return Err(
+                                "tip observation has positive mass on a state disallowed in its stratum".into(),
+                            );
+                        }
+                        if conditioning != 3 && tip_layer.allowed[s] == 0.0 {
+                            0.0
+                        } else {
+                            v
+                        }
+                    }
                 };
             }
             normalize(&mut down[i])?;
@@ -404,7 +456,11 @@ impl PreparedTreeSampler {
                         .map(|split| split.prior * a[split.left] * b[split.right])
                         .sum()
                 };
-                down[node][s] = v * input.fixes[node + nn * s];
+                down[node][s] = if conditioning != 3 && layer.allowed[s] == 0.0 {
+                    0.0
+                } else {
+                    v * input.fixes[node + nn * s]
+                };
             }
             normalize(&mut down[node])?;
             if node != input.root {

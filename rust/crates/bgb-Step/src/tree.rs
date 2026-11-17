@@ -667,7 +667,11 @@ impl CompiledModelContext {
             rootcond = prop.apply(t, &rootbottom, false)?;
             let total = sum(&rootcond);
             self.totals.push(total);
-            rootbottom = rootcond.iter().map(|x| x / total).collect();
+            rootbottom = if events.probability_contract && total == 0.0 {
+                vec![0.0; self.n]
+            } else {
+                rootcond.iter().map(|x| x / total).collect()
+            };
         }
         if self.mask.iter().any(|x| !*x) {
             self.mask(&mut rootbottom);

@@ -19,6 +19,8 @@
     if(p['j','type']=='free'||p['j','est']>0)name<-paste0(name,'+J')
     if(p['x','type']=='free'||p['x','est']!=0)name<-paste0(name,'+x')
     if(p['w','type']=='free'||p['w','est']!=1)name<-paste0(name,'+w')
+    if('n' %in% rownames(p)&&(p['n','type']=='free'||p['n','est']!=0))name<-paste0(name,'+n')
+    if('u' %in% rownames(p)&&(p['u','type']=='free'||p['u','est']!=0))name<-paste0(name,'+u')
     name
 }
 .bgb_u_allocate_maps <- function(weights,total) {

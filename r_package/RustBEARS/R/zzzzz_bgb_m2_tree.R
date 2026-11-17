@@ -40,6 +40,7 @@
     cached<-.bgb_m2_priors(na,inp);p<-cached$priors;maxmin<-cached$maxmin
     if(x$cppSpMethod==3&&is.null(x$m)){
         dmat_mat<-as.matrix(inp$dmat);storage.mode(dmat_mat)<-'double'
+        diag(dmat_mat)[is.na(diag(dmat_mat))]<-1
         actual_na<-nrow(dmat_mat)
         padded<-lapply(p,function(a){out<-matrix(0,actual_na,actual_na);nr<-min(nrow(a),actual_na);nc<-min(ncol(a),actual_na);out[seq_len(nr),seq_len(nc)]<-a[seq_len(nr),seq_len(nc),drop=FALSE];out})
         maxmin<-c(maxmin,rep(0,max(0,actual_na-length(maxmin))))
@@ -122,7 +123,8 @@
     a<-list(c(x$input_is_COO,x$sparse,x$calc_ancprobs,full||prep$kind==3L),q,rows,cols,prep$anc,prep$left,prep$right,prep$weight,prep$denom,prep$matrix)
     qp<-if(deferred){
         qdmat<-as.matrix(x$Qmat$dmat);storage.mode(qdmat)<-'double'
-        qamat<-if(is.null(x$Qmat$amat))matrix(0,nrow(qdmat),ncol(qdmat))else{m<-as.matrix(x$Qmat$amat);storage.mode(m)<-'double';m}
+        diag(qdmat)[is.na(diag(qdmat))]<-1
+        qamat<-if(is.null(x$Qmat$amat))matrix(0,nrow(qdmat),ncol(qdmat))else{m<-as.matrix(x$Qmat$amat);storage.mode(m)<-'double';diag(m)[is.na(diag(m))]<-0;m}
         list(c(1,x$Qmat$normalize_TF,x$Qmat$makeCOO_TF,x$Qmat$min_precision),qdmat,as.double(x$Qmat$elist),qamat)
     }else list(c(0,0,0,0),numeric(),numeric(),numeric())
     cp<-if(!is.null(prep$model))c(list(prep$model$parameters,prep$model$dmat),prep$model$priors,list(prep$model$maxmin,prep$model$na))else rep(list(numeric()),8)

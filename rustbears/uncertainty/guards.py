@@ -20,7 +20,8 @@ def clone_model(model, *, geog=None, model_object=None, **changes):
     # Inputs may originally have been filenames. A refit uses the matrices
     # that produced this fit, even if a file was edited afterwards.
     for key,values in (("distances",model.dist),("envdistances",model.env),
-                       ("dispersal_multipliers",model.manual),("area_of_areas",model.area_size)):
+                       ("dispersal_multipliers",model.manual),("area_of_areas",model.area_size),
+                       ("areas_allowed",model.allowed_mats),("areas_adjacency",model.adjacency_mats)):
         if getattr(model.config,key) is not None:
             setattr(config,key,np.array(values,copy=True))
     if model.config.timeperiods is not None:
@@ -47,6 +48,7 @@ def model_manifest(model):
                 root_sampling_probs=model.root_sampling_probs,root_prior_mode=model.root_prior_spec.mode,
                 precision=model.precision,contract=model.likelihood_conditioning,
                 dist=model.dist,env=model.env,manual=model.manual,area_size=model.area_size,
+                allowed_mats=model.allowed_mats,adjacency_mats=model.adjacency_mats,
                 times=model.times,masks=model.masks,fixes=model.fixes,fixlikes=model.fixlikes,
                 include_null_range=model.config.include_null_range,
                 allow_null_tips=model.config.allow_null_tips,min_branchlength=model.config.min_branchlength,

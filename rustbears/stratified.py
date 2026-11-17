@@ -52,7 +52,7 @@ def effective_times(times, root_age):
     return times[:keep]
 
 
-def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_line=1e-5):
+def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_line=1e-5, exact_ages=False):
     tree = read_newick(tree)
     times = effective_times(read_times(timeperiods),float(tree.ages[tree.root]))
     ages = tree.ages
@@ -65,8 +65,9 @@ def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_lin
         raise ValueError("a node is too close to a stratum boundary")
 
     def add_row(layer, piece, node, kind, idx, length, node_type, lower, upper):
+        node_age = float(ages[node]) if exact_ages else round(float(ages[node]),7)
         rows.append({"node": node+1, "node.type": "root" if node==root else "tip" if node<nt else "internal",
-                     "edge.length": tree.lengths[node], "time_bp": round(float(ages[node]),7), "label": tree.labels[node],
+                     "edge.length": tree.lengths[node], "time_bp": node_age, "label": tree.labels[node],
                      "fossils": node<nt and ages[node]>tree.fossils_older_than,
                      "stratum":layer,"piecenum":piece,"piececlass":kind,"time_top":lower,"time_bot":upper,
                      "SUBnode":idx+1,"SUBedge.length":length,"SUBnode.type":node_type})
@@ -78,7 +79,7 @@ def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_lin
     active_lengths = tree.lengths.copy()
     if np.any(ages[:nt] > tree.fossils_older_than):
         active_lengths[:nt] += ages[:nt]
-    original_ages = np.round(ages,7)
+    original_ages = np.asarray(ages, dtype=float) if exact_ages else np.round(ages,7)
     layers = []
     relative = np.asarray(times).copy()
 
@@ -113,8 +114,9 @@ def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_lin
         retained = []
         for j, base in enumerate(tops, 1):
             if base in slots:
+                seg_len = (min(bot, float(ages[parents[base]])) - max(top, float(ages[base]))) if exact_ages else slab
                 add_row(i,j,base,"subbranch",slots[base],active_lengths[base],"tip",top,bot)
-                layer.append(Piece((base,),(slots[base],),np.empty((0,2),int),_EMPTY,slab,(len(rows)-1,)))
+                layer.append(Piece((base,),(slots[base],),np.empty((0,2),int),_EMPTY,seg_len,(len(rows)-1,)))
                 retained.append((base,active_lengths[base],depths[base]))
                 continue
 
@@ -134,13 +136,17 @@ def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_lin
             idx = {node:k for k,node in enumerate(nodes)}
             children = tuple(tuple(idx[c] for c in tree.children[n]) if n in inner else () for n in nodes)
             edge = pruningwise_edges(children,len(tips))
-            lengths = np.asarray([active_lengths[nodes[c]] for _,c in edge])
-            for k,(_,child) in enumerate(edge):
-                master=nodes[child]
-                if master in slots and original_ages[master]-top>1e-10:
-                    lengths[k]-=original_ages[master]-top
+            if exact_ages:
+                lengths = np.asarray([float(ages[parents[nodes[c]]]) - max(top, float(ages[nodes[c]])) for _,c in edge], dtype=float)
+                duration = 0.0 if base==root else float(bot - ages[base])
+            else:
+                lengths = np.asarray([active_lengths[nodes[c]] for _,c in edge])
+                for k,(_,child) in enumerate(edge):
+                    master=nodes[child]
+                    if master in slots and original_ages[master]-top>1e-10:
+                        lengths[k]-=original_ages[master]-top
+                duration = 0.0 if base==root else slab-max(heights.values())
             local_lengths = {int(c):length for (_,c),length in zip(edge,lengths)}
-            duration = 0.0 if base==root else slab-max(heights.values())
             first = len(rows)
             for k,node in enumerate(nodes):
                 role = "root" if node==base else "tip" if node in slots else "internal"
@@ -157,7 +163,7 @@ def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_lin
             # ages rounded to seven decimal places at every cut.
             retained_height=max(d for _,_,d in retained)
             for node,length,depth in retained:
-                age=round(retained_height-depth,7)
+                age=(retained_height-depth) if exact_ages else round(retained_height-depth,7)
                 active_lengths[node]=length+(age-slab)
                 if active_lengths[node]<=0:
                     raise ValueError("a cut produced a nonpositive remaining branch")
@@ -165,14 +171,14 @@ def section_the_tree(tree, timeperiods, *, min_dist_between_node_and_stratum_lin
 
 
 def config_single(nt, n, edges, lengths, tips, null, root_edge, qstates, cstates, na,
-                  fixes=(), fixlikes=_EMPTY, minimum=1e-6, ntraits=0):
+                  fixes=(), fixlikes=_EMPTY, minimum=1e-6, ntraits=0, prior=_EMPTY):
     qbuf = _states(qstates) if qstates else (_EMPTY,_EMPTY)
     cbuf = _states(cstates) if cstates else (_EMPTY,_EMPTY)
     return [[nt,n,2*nt-1,minimum,null,True,root_edge,1,3,ntraits], edges, lengths, tips,
-            fixes,fixlikes,_EMPTY,_EMPTY,*qbuf,*cbuf,[na if qstates else 0,na if cstates else 0]]
+            fixes,fixlikes,_EMPTY,prior,*qbuf,*cbuf,[na if qstates else 0,na if cstates else 0]]
 
 
-def compile_sections(sections, states, masks, null, areas, fixes, fixlikes, minimum, ntraits=0):
+def compile_sections(sections, states, masks, null, areas, fixes, fixlikes, minimum, ntraits=0, root_prior=_EMPTY, exact_ages=False):
     tree, layers, rows = sections.tree, sections.pieces, sections.rows
     nt, nn, n = tree.tip_count, len(tree.labels), len(states)*max(1,ntraits)
     # Master rows for original tips precede the layer pieces, as in M3.
@@ -181,6 +187,8 @@ def compile_sections(sections, states, masks, null, areas, fixes, fixlikes, mini
     down = sorted((i for i,r in enumerate(rows) if r["piececlass"]=="subtree" and r["SUBnode.type"]!="root"),
                   key=lambda i: rows[i]["node"])
     routes = [{node:(j,k) for j,p in enumerate(layer) for k,node in enumerate(p.nodes)} for layer in layers]
+    if any(t not in routes[0] for t in range(nt)):
+        raise ValueError("stratified compilation requires all tips to reach the present stratum")
     tips = [(0,*routes[0][t]) for t in range(nt)]
     config = [[n,nt,nn,len(rows),tree.root,len(layers),null],ttl,down,np.asarray(tips).ravel()]
     widths = []
@@ -201,23 +209,30 @@ def compile_sections(sections, states, masks, null, areas, fixes, fixlikes, mini
                 r = rows[p.rows[0]]
                 age,top,bot = r["time_bp"],r["time_top"],r["time_bot"]
                 fossil = r["fossils"]
-                downflag,upflag = not (fossil and age>top), age>=top
-                length = p.duration
-                if fossil and top<=age<bot:
-                    downflag = upflag = True
-                    length -= age-top
-                if r["edge.length"]<minimum:
-                    downflag=upflag=False
-                config.extend(([0,p.sources[0],p.rows[0],p.duration,downflag,length,upflag,length],older))
+                if exact_ages:
+                    ok = bool(np.isfinite(p.duration) and p.duration > 0 and r["edge.length"] >= minimum and not fossil)
+                    config.extend(([0,p.sources[0],p.rows[0],p.duration,ok,p.duration,ok,p.duration],older))
+                else:
+                    downflag,upflag = not (fossil and age>top), age>=top
+                    length = p.duration
+                    if fossil and top<=age<bot:
+                        downflag = upflag = True
+                        length -= age-top
+                    if r["edge.length"]<minimum:
+                        downflag=upflag=False
+                    config.extend(([0,p.sources[0],p.rows[0],p.duration,downflag,length,upflag,length],older))
             else:
                 ntips=len(p.sources)
                 positions = sorted((p.nodes.index(node), k) for k,node in enumerate(fixes)
                                    if node in p.nodes[ntips:])
                 fn=[j for j,k in positions]
                 fl=fixlikes[[k for j,k in positions],:][:,trait_mask] if fn else _EMPTY
+                piece_prior = (root_prior[columns]
+                               if i==len(layers)-1 and p.master_root==tree.root and len(root_prior)
+                               else _EMPTY)
                 config.extend(([1],p.sources,p.rows,p.nodes,
                                [j==ntips for j in range(len(p.nodes))],
                                older if p.duration>0 else _EMPTY,fn,fl))
                 config.extend(config_single(ntips,len(columns),p.edges,p.lengths,_EMPTY,null,p.duration,
-                                            (),(),areas,fn,fl,minimum))
+                                            (),(),areas,fn,fl,minimum,prior=piece_prior))
     return config,widths

@@ -51,10 +51,13 @@ class RootPriorSpec:
                 frozen=tuple(float(x) for x in weights)
             object.__setattr__(self,"custom_weights",frozen)
 
-    def resolve(self, states, ranges, contract):
+    def resolve(self, states, ranges, contract, allowed_mask=None):
         if contract not in CONTRACTS:
             raise ValueError("unknown likelihood_conditioning")
         occupied = np.array([bool(s) for s in states])
+        allowed = None if allowed_mask is None else np.asarray(allowed_mask, dtype=bool)
+        if allowed is not None and allowed.shape != (len(states),):
+            raise ValueError("root allowed_mask must have one entry per model state")
         if self.mode == "custom_weights":
             if isinstance(self.custom_weights, Mapping):
                 index = {tuple(s): i for i, s in enumerate(states)}
@@ -87,6 +90,10 @@ class RootPriorSpec:
             weights = occupied.astype(float)
         if not np.isfinite(weights).all() or np.any(weights < 0):
             raise ValueError("root weights must be finite and nonnegative")
+        if allowed is not None:
+            if self.mode == "custom_weights" and np.any(weights[~allowed] > 0):
+                raise ValueError("custom root weights assign positive mass to states disallowed in the root stratum")
+            weights[~allowed] = 0.0
         if contract == "tip_survival":
             weights[~occupied] = 0.0
         total = float(weights.sum())
@@ -119,5 +126,5 @@ def resolve_simulation_conditioning(contract, requested):
             )
         return contract
     if requested not in ("tip_survival", "unconditional_complete"):
-        raise UnsupportedModelContractError("Tier-1a supports tip_survival and unconditional_complete simulation")
+        raise UnsupportedModelContractError("probability contracts support tip_survival and unconditional_complete simulation")
     return requested

@@ -31,7 +31,7 @@
     if(methods::is(name,'BioGeoBEARS_model'))return(name)
     if(!is.character(name)||length(name)!=1L)stop('invalid model definition')
     base<-toupper(strsplit(name,'+',fixed=TRUE)[[1]][1]);mods<-tolower(strsplit(name,'+',fixed=TRUE)[[1]][-1L])
-    if(!base %in% c('DEC','DIVALIKE','BAYAREALIKE')||any(!mods %in% c('j','x','w'))||anyDuplicated(mods))
+    if(!base %in% c('DEC','DIVALIKE','BAYAREALIKE')||any(!mods %in% c('j','x','w','n','u'))||anyDuplicated(mods))
         stop('UnsupportedModelContractError: unknown standard model')
     p<-template@params_table
     p['j','type']<-if('j' %in% mods)'free' else 'fixed'
@@ -50,9 +50,9 @@
     p['mx01v',c('init','est')]<-if(base=='DIVALIKE').5 else p['mx01','est']
     p['mx01y','type']<-if(base=='BAYAREALIKE')'fixed' else 'mx01'
     p['mx01y',c('init','est')]<-if(base=='BAYAREALIKE').9999 else p['mx01','est']
-    for(k in c('x','w')) {
+    for(k in c('x','w','n','u'))if(k %in% rownames(p)) {
         p[k,'type']<-if(k %in% mods)'free' else 'fixed'
-        p[k,c('init','est')]<-if(k=='x')0 else 1
+        p[k,c('init','est')]<-if(k=='w')1 else 0
     }
     template@params_table<-p;calc_linked_params_BioGeoBEARS_model_object(template,update_init=TRUE)
 }
@@ -64,7 +64,28 @@
         if(definition@params_table[k,'type']=='free')
             x$BioGeoBEARS_model_object@params_table[k,c('init','est')]<-max(definition@params_table[k,'min'],min(definition@params_table[k,'max'],start[[k]]))
     x$num_cores_to_use<-as.integer(num_threads);x$printlevel<--1L;x$print_optim<-FALSE;x$calc_ancprobs<-TRUE;x$use_optimx<-FALSE
-    x<-readfiles_BioGeoBEARS_run(x);result<-NULL
+    x$tree_sections_list<-NULL;x$master_table<-NULL;x$lists_of_states_lists_0based<-NULL
+    invisible(utils::capture.output(x<-readfiles_BioGeoBEARS_run(x)))
+    if(is.numeric(x$timeperiods)&&length(x$timeperiods)>1L) {
+        depths<-ape::node.depth.edgelength(tree)
+        root_age<-max(depths[seq_along(tree$tip.label)])
+        tp<-as.numeric(x$timeperiods)
+        older<-which(tp>root_age)
+        keep<-if(length(older))older[1L] else length(tp)
+        tp<-tp[seq_len(keep)]
+        if(tp[keep]<=root_age)tp[keep]<-root_age+1
+        for(f in c('list_of_areas_allowed_mats','list_of_areas_adjacency_mats','list_of_distances_mats',
+                   'list_of_envdistances_mats','list_of_dispersal_multipliers_mats','list_of_area_of_areas')) {
+            if(!is.null(x[[f]])&&length(x[[f]])>keep)x[[f]]<-x[[f]][seq_len(keep)]
+        }
+        if(keep>=2L) {
+            x$timeperiods<-tp
+            invisible(utils::capture.output(x<-section_the_tree(inputs=x,make_master_table=TRUE,plot_pieces=FALSE,cut_fossils=FALSE)))
+        } else {
+            x$timeperiods<-NA
+        }
+    }
+    result<-NULL
     invisible(utils::capture.output(result<-bears_optim_run(x,
         skip_optim=!optimize||!any(definition@params_table$type=='free'),skip_optim_option='return_all')))
     result

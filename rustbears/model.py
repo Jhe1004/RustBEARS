@@ -98,15 +98,16 @@ def model_template(name):
     display=name.upper().replace(" ","")
     parts=display.split("+")
     base=parts[0]
-    if base not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X","W"}:
+    if base not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X","W","N","U"} or len(set(parts[1:]))!=len(parts[1:]):
         raise ValueError(f"unknown model {name}")
     categories={"DEC":3,"DIVALIKE":2,"BAYAREALIKE":1}[base]
     p = {
         "d":Parameter("free",.01,1e-12,5), "e":Parameter("free",.01,1e-12,5),
         "a":Parameter("fixed",0,1e-12,5), "b":Parameter("fixed",1,1e-12,1),
         "x":Parameter("free" if "X" in parts else "fixed",0,-2.5,2.5),
-        "n":Parameter("fixed",0,-10,10), "w":Parameter("free" if "W" in parts else "fixed",1,-10,10),
-        "u":Parameter("fixed",0,-10,10),
+        "n":Parameter("free" if "N" in parts else "fixed",0,-10,10),
+        "w":Parameter("free" if "W" in parts else "fixed",1,-10,10),
+        "u":Parameter("free" if "U" in parts else "fixed",0,-10,10),
         "j":Parameter("free" if "J" in parts else "fixed",.01 if "J" in parts else 0,1e-5,categories-1e-5),
         "ysv":Parameter(f"{categories}-j",categories,0,categories),
         "y":Parameter(f"ysv/{categories}",1,0,1),
@@ -118,7 +119,10 @@ def model_template(name):
         "mx01j":Parameter("mx01",.0001,.0001,.9999),
         "mx01y":Parameter("fixed" if base=="BAYAREALIKE" else "mx01",.9999 if base=="BAYAREALIKE" else .0001,.0001,.9999),
     }
-    return BioGeoBEARSModelObject(display.replace("+X","+x").replace("+W","+w"),p)
+    normalized = display
+    for mod in ("X","W","N","U"):
+        normalized = normalized.replace(f"+{mod}", f"+{mod.lower()}")
+    return BioGeoBEARSModelObject(normalized,p)
 
 
 @dataclass
@@ -264,9 +268,10 @@ class BioGeoBEARS:
         raw=rcpp_areas_list_to_states_list(self.areas,c.max_range_size,c.include_null_range)
         states=tuple(() if s==(-1,) else s for s in raw)
         self.null=int(c.include_null_range)
+        self._contract_native=(self.likelihood_conditioning!="legacy_unconditioned" or c.root_prior is not None)
         self.raw_times=read_times(c.timeperiods)
         self.times=effective_times(self.raw_times,float(self.tree.ages[self.tree.root]))
-        self.sections=section_the_tree(self.tree,self.times) if len(self.times)>1 else None
+        self.sections=section_the_tree(self.tree,self.times,exact_ages=self._contract_native) if len(self.times)>1 else None
         nlayer=max(1,len(self.times))
 
         def matrices(source, distance=False):
@@ -276,6 +281,8 @@ class BioGeoBEARS:
         self.dist=matrices(c.distances,True)
         self.env=matrices(c.envdistances,True)
         self.manual=matrices(c.dispersal_multipliers)
+        self.allowed_mats=matrices(c.areas_allowed)
+        self.adjacency_mats=matrices(c.areas_adjacency)
         if c.area_of_areas is None:
             self.area_size=np.ones((nlayer,self.na))
         else:
@@ -288,7 +295,7 @@ class BioGeoBEARS:
         self.masks=tuple(np.array([not s or
                                    (a[s[0],list(s)].sum()==len(s) and
                                     adj[np.ix_(s,s)].sum()==len(s)**2) for s in states])
-                         for a,adj in zip(matrices(c.areas_allowed),matrices(c.areas_adjacency)))
+                         for a,adj in zip(self.allowed_mats,self.adjacency_mats))
         single_mask = self.masks[0] if self.sections is None else np.ones(len(states),bool)
         self.geographic_states=tuple(s for s,keep in zip(states,single_mask) if keep)
         if self.sections is None:
@@ -330,10 +337,20 @@ class BioGeoBEARS:
                            any(n<self.tree.tip_count or n>=len(self.tree.labels) for n in self.fixes)
                            or len(set(self.fixes))!=len(self.fixes)):
             raise ValueError("fixnode must contain unique internal IDs, with one state vector per node")
+        if self._contract_native:
+            self._require_tier1a()
+        root_allowed = np.tile(self.masks[-1], traits)
+        self.root_likelihood_weights,self.root_sampling_probs,self.root_weight_log_scale=(
+            self.root_prior_spec.resolve(self.states,self.ranges,self.likelihood_conditioning,
+                                         allowed_mask=root_allowed))
+        self.root_prior_vec=self.root_sampling_probs
+        native_root = self.root_likelihood_weights if self._contract_native else _EMPTY
         if self.sections:
             self._geometry,self._prior_width=compile_sections(self.sections,self.geographic_states,self.masks,
                                                                self.null,self.na,self.fixes,self.fixlikes,c.min_branchlength,
-                                                               len(self.trait.labels) if self.trait else 0)
+                                                               len(self.trait.labels) if self.trait else 0,
+                                                               root_prior=native_root,
+                                                               exact_ages=self._contract_native)
             self._upper_m=[None]*nlayer
             last=None
             for i in reversed(range(nlayer)):
@@ -348,44 +365,48 @@ class BioGeoBEARS:
                                          self.tips,self.null,self.tree.root_edge if c.rootedge else 0,
                                          () if self.trait else self.states,() if self.trait else self.states[self.null:],
                                          self.na,self.fixes,self.fixlikes,c.min_branchlength,
-                                         len(self.trait.labels) if self.trait else 0)
-
-        self.root_likelihood_weights,self.root_sampling_probs,self.root_weight_log_scale=(
-            self.root_prior_spec.resolve(self.states,self.ranges,self.likelihood_conditioning))
-        self.root_prior_vec=self.root_sampling_probs
-        self._contract_native=(self.likelihood_conditioning!="legacy_unconditioned" or c.root_prior is not None)
-        if self._contract_native:
-            self._require_tier1a()
-            self._geometry[7]=self.root_likelihood_weights
+                                         len(self.trait.labels) if self.trait else 0,
+                                         prior=native_root)
 
     def _require_tier1a(self):
-        """Compatibility name for the validated single-layer Tier-1b gate."""
+        """Compatibility name for the validated probability-contract model gate."""
         c=self.config
         unsupported=[]
-        if self.sections is not None: unsupported.append("time stratification")
         if self.trait is not None: unsupported.append("trait models")
         if self.fixes: unsupported.append("fixed internal observations")
         if c.rootedge: unsupported.append("root edges")
         if c.use_ambiguities or self.geog.ambiguous: unsupported.append("ambiguous tip observations")
-        if np.any(self.tree.lengths[self.tree.edges[:,1]]<c.min_branchlength):
-            unsupported.append("fossil-hook branches")
+        if (np.any(self.tree.lengths[self.tree.edges[:,1]]<c.min_branchlength) or
+            np.any(self.tree.ages[:self.tree.tip_count]>self.tree.fossils_older_than) or
+            (len(self.times)>1 and np.any(self.tree.ages[:self.tree.tip_count]>=self.times[0]))):
+            unsupported.append("fossil-hook or non-contemporaneous fossil branches")
         if not self.null: unsupported.append("include_null_range=False")
         parts=self.model.name.upper().split("+")
-        if parts[0] not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X","W"}:
+        if parts[0] not in ("DEC","DIVALIKE","BAYAREALIKE") or set(parts[1:])-{"J","X","W","N","U"}:
             unsupported.append("nonstandard model family")
-        if any(getattr(c,k) is not None for k in ("areas_allowed","areas_adjacency",
-               "envdistances","area_of_areas")):
-            unsupported.append("unvalidated spatial modifiers")
         p=self.model.resolve()
         if any(p[k]!=v or self.model.params[k].type=="free"
-               for k,v in {"a":0,"b":1,"n":0,"u":0}.items()):
+               for k,v in {"a":0,"b":1}.items()):
             unsupported.append("nonstandard rate modifiers")
-        base=model_template(self.model.name)
-        if any(self.model.params[k]!=base.params[k] for k in base.params if k not in ("d","e","j","x","w")):
-            unsupported.append("nonstandard cladogenesis parameters")
+        base_name = parts[0] + ("+J" if "J" in parts else "")
+        if parts[0] in ("DEC","DIVALIKE","BAYAREALIKE"):
+            base=model_template(base_name)
+            if any(self.model.params[k]!=base.params[k] for k in base.params if k not in ("d","e","j","x","w","n","u")):
+                unsupported.append("nonstandard cladogenesis parameters")
+        for label,mats in (("areas_allowed",self.allowed_mats),("areas_adjacency",self.adjacency_mats)):
+            arr=np.asarray(mats)
+            if not np.all((arr==0.0) | (arr==1.0)):
+                unsupported.append(f"non-binary {label} entries")
+        for i in range(len(self.masks)-1):
+            if np.any(self.masks[i+1] & ~self.masks[i]):
+                unsupported.append("non-monotone state-space disappearance across time strata")
+                break
         if unsupported:
-            raise UnsupportedModelContractError("Tier-1b does not support "+", ".join(unsupported))
-        for key,matrix in (("x",self.dist),("w",self.manual)):
+            raise UnsupportedModelContractError("probability contracts do not support "+", ".join(unsupported))
+        present_mask=self.masks[0]
+        if np.any(self.tips[:,~present_mask]>0) or not np.all(self.tips[:,present_mask].sum(axis=1)>0):
+            raise UnsupportedModelContractError("tip observations assign mass outside the present stratum's allowed state space")
+        for key,matrix in (("x",self.dist),("n",self.env),("w",self.manual),("u",self.area_size)):
             if self.model.params[key].type=="free" and self.model.params[key].min<0 and np.any(np.asarray(matrix)<=0):
                 raise ValueError(f"free {key} with negative bounds requires strictly positive modifier entries")
 
@@ -394,14 +415,19 @@ class BioGeoBEARS:
             return
         categories={"DEC":3,"DIVALIKE":2,"BAYAREALIKE":1}[self.model.name.upper().split("+")[0]]
         if params["d"]<0 or params["e"]<0 or not 0<=params["j"]<categories:
-            raise ValueError(f"Tier-1b requires d,e >= 0 and 0 <= j < {categories}")
-        expected=self.model.resolve({k:params[k] for k in ("d","e","j","x","w")})
-        if any(params[k]!=expected[k] for k in params if k not in ("d","e","j","x","w")):
-            raise UnsupportedModelContractError("parameter overrides cannot enable unvalidated Tier-1b modifiers")
+            raise ValueError(f"probability contracts require d,e >= 0 and 0 <= j < {categories}")
+        modifiable=("d","e","j","x","w","n","u")
+        expected=self.model.resolve({k:params[k] for k in modifiable})
+        if any(params[k]!=expected[k] for k in params if k not in modifiable):
+            raise UnsupportedModelContractError("parameter overrides cannot enable unvalidated rate or cladogenesis modifiers")
         with np.errstate(over="ignore",divide="ignore",invalid="ignore"):
-            modifiers=np.asarray(self.dist)**params["x"]*np.asarray(self.manual)**params["w"]
-        if not np.isfinite(modifiers).all() or np.any(modifiers<0):
-            raise ValueError("distance/manual exponents produced invalid rate multipliers")
+            modifiers=(np.asarray(self.dist)**params["x"]
+                       * np.asarray(self.env)**params["n"]
+                       * np.asarray(self.manual)**params["w"])
+            area_mod=np.asarray(self.area_size)**params["u"]
+        if (not np.isfinite(modifiers).all() or np.any(modifiers<0) or
+            not np.isfinite(area_mod).all() or np.any(area_mod<0)):
+            raise ValueError("spatial/environmental modifier exponents produced invalid rate multipliers")
 
     def prepared_likelihood(self,params=None,*,num_threads=1):
         """Compile once for repeated tip patterns at fixed model parameters."""
@@ -478,10 +504,12 @@ class BioGeoBEARS:
     def _evaluate(self, ctx, params, full, precision=None, tip_likelihoods=None):
         self._validate_contract_params(params)
         if self.sections:
-            args=[[full,full,1,1,1],self.tips]
+            args=[[full,full,1,1,1],self.tips if tip_likelihoods is None else tip_likelihoods]
+            use_contract=self._contract_native
             for i in range(len(self.times)):
-                separate=full and (self.trait is not None or not np.array_equal(self.env[i],self.env[0]) or
-                                   params["j"]!=0 and self._upper_m[i] is not None and not self.config.force_sparse)
+                separate=(not use_contract) and full and (
+                    self.trait is not None or not np.array_equal(self.env[i],self.env[0]) or
+                    params["j"]!=0 and self._upper_m[i] is not None and not self.config.force_sparse)
                 args.extend(([separate],*self._layer_buffers(i,params,False,False)))
                 if separate:
                     args.extend(self._layer_buffers(i,params,False,False,True))

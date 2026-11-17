@@ -51,8 +51,12 @@ scores retain their original scale and do not define a unique simulator.
 
 Prepared samplers preserve the historical state order. A sampler owns a native
 handle, which is released explicitly or by its finalizer. Closed handles cannot
-be reused. Input files changed after fitting are rejected. New probability
-contracts currently require the documented validated model support scope.}
+be reused. Input files changed after fitting are rejected. Probability contracts
+support single-layer and time-stratified analyses with spatial/environmental rate
+modifiers (\code{distances}, \code{envdistances}, \code{dispersal_multipliers},
+\code{area_of_areas}, \code{areas_adjacency}) and monotone geographic emergence
+across strata (\code{areas_allowed}), while rejecting trait models, fossil hooks,
+fixed internal nodes, root edges, ambiguous tips and non-monotone area disappearance.}
 \value{\code{define_root_prior} returns a root specification.
 \code{prepare_tree_sampler} returns an owned \code{PreparedTreeSampler}.
 \code{simulate_datasets} returns a \code{SimulatedBatch} with zero-based state

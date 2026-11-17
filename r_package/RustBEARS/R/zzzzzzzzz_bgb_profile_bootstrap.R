@@ -8,7 +8,8 @@
     base<-if(p['v','type']=='fixed'&&p['v','est']==0)'BAYAREALIKE' else
         if(p['s','type']=='fixed'&&p['s','est']==0)'DIVALIKE' else 'DEC'
     paste0(base,if(p['j','type']=='free')'+J' else '',if(p['x','type']=='free')'+x' else '',
-           if(p['w','type']=='free')'+w' else '')
+           if(p['w','type']=='free')'+w' else '',if('n' %in% rownames(p)&&p['n','type']=='free')'+n' else '',
+           if('u' %in% rownames(p)&&p['u','type']=='free')'+u' else '')
 }
 .bgb_s_check <- function(res) {
     .bgb_u_assert_fit(res);.bgb_v12_validate_scope(res$inputs)
@@ -69,10 +70,17 @@
 .bgb_s_score_factory <- function(res,num_threads=1L) {
     x<-res$inputs;x$BioGeoBEARS_model_object<-res$outputs;x$printlevel<--1L;x$print_optim<-FALSE
     phy<-ape::reorder.phylo(ape::read.tree(x$trfn),'pruningwise')
-    mats<-get_Qmat_COOmat_from_BioGeoBEARS_run_object(x,BioGeoBEARS_model_object=res$outputs,
-        max_range_size=x$max_range_size,include_null_range=x$include_null_range)
-    states<-mats$states_list;areas<-seq_len(length(getareas_from_tipranges_object(getranges_from_LagrangePHYLIP(x$geogfn))))-1L
-    tips<-tipranges_to_tip_condlikes_of_data_on_each_state(getranges_from_LagrangePHYLIP(x$geogfn),phy,
+    tipranges<-getranges_from_LagrangePHYLIP(x$geogfn)
+    areas<-seq_len(length(getareas_from_tipranges_object(tipranges)))-1L
+    stratified<-is.numeric(x$timeperiods)&&length(x$timeperiods)>=2L
+    all_states<-.bgb_v12_all_states(x)
+    states<-if(stratified)all_states else if(!is.null(x$states_list))x$states_list else {
+        keep<-.bgb_v12_layer_mask(x,all_states,1L,isTRUE(x$include_null_range))
+        all_states[keep]
+    }
+    if(length(states)&&!is.na(states[[1]][1])&&identical(states[[1]],'_'))states[[1]]<-NA
+    if(!stratified)x$states_list<-states
+    tips<-tipranges_to_tip_condlikes_of_data_on_each_state(tipranges,phy,
         states_list=states,maxareas=x$max_range_size,include_null_range=x$include_null_range,
         useAmbiguities=FALSE,trait_as_tip_condlikes=NULL,allow_null_tips=isTRUE(x$allow_null_tips))
     function(params) {
@@ -84,8 +92,12 @@
         .bgb_v12_runtime$root_prior<-if(is.null(x$root_prior))
             define_root_prior(if(res$likelihood_conditioning=='legacy_unconditioned')'legacy_flat_weights' else 'uniform_nonnull') else x$root_prior
         .bgb_m2_runtime$threads<-num_threads
-        calc_loglike_for_optim(params,x,phy,tips,print_optim=FALSE,areas_list=areas,states_list=states,
-            force_sparse=isTRUE(x$force_sparse),cluster_already_open=NULL,return_what='loglike',calc_ancprobs=FALSE)
+        if(stratified)
+            calc_loglike_for_optim_stratified(params,x,phy,tips,print_optim=FALSE,areas_list=areas,states_list=states,
+                force_sparse=isTRUE(x$force_sparse),cluster_already_open=NULL,min_branchlength=x$min_branchlength)
+        else
+            calc_loglike_for_optim(params,x,phy,tips,print_optim=FALSE,areas_list=areas,states_list=states,
+                force_sparse=isTRUE(x$force_sparse),cluster_already_open=NULL,return_what='loglike',calc_ancprobs=FALSE)
     }
 }
 .bgb_s_fit <- function(res,fixed=list(),start=.bgb_u_params(res),geogfn=NULL,num_threads=1L,maxit=500L,ancestors=TRUE) {

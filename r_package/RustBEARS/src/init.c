@@ -170,15 +170,18 @@ static SEXP c_bgb_strat_handle(void){
 }
 /* v1.2 additive ABI. Legacy entry points and index order remain unchanged. */
 static SEXP c_bgb_tree_contract(SEXP ptr,SEXP config,SEXP args,SEXP precision,SEXP threads,SEXP contract,SEXP tips){
- if(TYPEOF(ptr)!=EXTPTRSXP || R_ExternalPtrTag(ptr)!=Rf_install("bgb_M2_context"))
-  Rf_error("contract evaluation requires a single-layer tree handle");
+ if(TYPEOF(ptr)!=EXTPTRSXP)Rf_error("invalid private tree handle");
+ SEXP tag=R_ExternalPtrTag(ptr);
+ int stratified=tag==Rf_install("bgb_M3_context");
+ if(!stratified&&tag!=Rf_install("bgb_M2_context"))Rf_error("invalid private tree handle tag");
  int code=Rf_asInteger(contract), nth=Rf_asInteger(threads);
  if(code<0 || code>2 || nth<1 || nth>256)Rf_error("invalid contract or thread count");
  ContextHandle *context=(ContextHandle*)R_ExternalPtrAddr(ptr);
  if(!context){
   R_RegisterCFinalizerEx(ptr,finalize_context,TRUE);
   const double **p;size_t *lens;SEXP keep;numeric_buffers(config,&p,&lens,&keep);
-  context=bgb_context_create(p,lens,(size_t)XLENGTH(config),(size_t)nth);
+  if(stratified)context=bgb_strat_context_create(p,lens,(size_t)XLENGTH(config),(size_t)nth);
+  else context=bgb_context_create(p,lens,(size_t)XLENGTH(config),(size_t)nth);
   const char *failure=bgb_context_error(context);
   if(failure){char msg[1024];snprintf(msg,sizeof(msg),"%s",failure);bgb_context_free(context);UNPROTECT(1);Rf_error("%s",msg);}
   R_SetExternalPtrAddr(ptr,context);UNPROTECT(1);
