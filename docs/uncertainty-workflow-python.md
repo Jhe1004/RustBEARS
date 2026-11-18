@@ -17,11 +17,11 @@ null_fit = rb.BioGeoBEARS(model="DEC", **options).fit()
 alt_fit = rb.BioGeoBEARS(model="DEC+J", **options).fit()
 ```
 
-`tip_survival`（A）是在全部叶端非空条件下的概率似然；`unconditional_complete`（B）包括内部空态向空态子节点确定性传递，需要显式设置 `allow_null_tips=True`。`legacy_unconditioned`（C）保留历史评分及其原始根权重尺度。C 的默认正向模拟会拒绝执行，必须指定生成条件；历史评分的自举可以在指定的生成分布下校准。
+`tip_survival`（A）是在全部叶端非空条件下的概率似然；`unconditional_complete`（B）包括内部空态向空态子节点确定性传递，需要显式设置 `allow_null_tips=True`（在现存非空叶端与均匀非空根先验下，其对数似然与 `legacy_unconditioned` 仅相差常数 `-ln(S - 1)`，主要用于全状态空间正向模拟与概率完备性校验）。`legacy_unconditioned`（C）保留历史评分及其原始根权重尺度。C 的默认正向模拟会拒绝执行，必须指定生成条件；历史评分的自举可以在指定的生成分布下校准。
 
 `RootPriorSpec("custom_weights", {"A": 2, "B": 1, "AB": .5})` 使用精确的状态标签；也可使用整数区域元组，例如 `{(0,): 2, (1,): 1, (0, 1): .5}`。A/B 对权重归一化，C 保留自定义权重尺度；采样使用单独的归一化概率。输入字典会被复制，后续改动不会影响已构建模型。
 
-当前新契约覆盖单层标准六模型，以及距离指数 `+x`、人工扩散乘子指数 `+w`。分层、性状、固定内部观测、根边、化石 hook、模糊地理编码等组合会明确报错。
+当前新契约（`tip_survival` 与 `unconditional_complete`）支持标准六模型、空间/环境/面积修饰符（`+x`、`+n`、`+w`、`+u`、`areas_adjacency`），以及多层地质时间切片（`timeperiods`）与区域从古至今单调涌现的 `areas_allowed`。非单调硬清零沉没掩码、离散性状耦合、固定内部观测、根边、化石 hook、模糊地理编码等组合仍明确报错并保留在 `legacy_unconditioned` 下运行。
 
 ## 参数剖面
 

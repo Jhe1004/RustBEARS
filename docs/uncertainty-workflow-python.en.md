@@ -17,11 +17,11 @@ null_fit = rb.BioGeoBEARS(model="DEC", **options).fit()
 alt_fit = rb.BioGeoBEARS(model="DEC+J", **options).fit()
 ```
 
-`tip_survival` (A) conditions on every tip having a nonempty range. `unconditional_complete` (B) includes deterministic empty-to-empty transmission at internal nodes and requires `allow_null_tips=True`. `legacy_unconditioned` (C) preserves the historical score and raw root-weight scale. C simulation requires an explicit generating distribution; its score can still be bootstrap-calibrated under that declared distribution.
+`tip_survival` (A) conditions on every tip having a nonempty range. `unconditional_complete` (B) includes deterministic empty-to-empty transmission at internal nodes and requires `allow_null_tips=True` (on extant nonempty tips under a uniform nonnull root prior, its log-likelihood differs from `legacy_unconditioned` by the additive constant `-ln(S - 1)` and serves primarily for complete forward simulation and normalization checks). `legacy_unconditioned` (C) preserves the historical score and raw root-weight scale. C simulation requires an explicit generating distribution; its score can still be bootstrap-calibrated under that declared distribution.
 
 Custom roots accept exact range labels, for example `RootPriorSpec("custom_weights", {"A": 2, "B": 1, "AB": .5})`, or integer area tuples `{(0,): 2, (1,): 1, (0, 1): .5}`. A/B normalize these weights. C preserves custom weight scale in the score; sampling uses separate normalized probabilities. Input mappings are copied when the specification is created.
 
-New contracts currently support the six standard models on one time layer, distance exponent `+x`, and manual dispersal multiplier exponent `+w`. Stratification, traits, fixed internal observations, root edges, fossil hooks, and ambiguous geography remain explicitly unsupported.
+New contracts (`tip_survival` and `unconditional_complete`) support the six standard models, spatial/environmental/area modifiers (`+x`, `+n`, `+w`, `+u`, `areas_adjacency`), and multi-layer time stratification (`timeperiods`) with chronologically monotone area emergence (`areas_allowed`). Non-monotone hard-submergence masks, coupled traits, fixed internal observations, root edges, fossil hooks, and ambiguous geography remain explicitly rejected outside `legacy_unconditioned`.
 
 ## Profile parameters
 

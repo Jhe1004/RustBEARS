@@ -52,7 +52,9 @@ outside on one side, and otherwise unresolved. Rare statistics are not assessed.
 These exploratory intervals do not promise simultaneous, selected-rank or
 optional-stopping coverage.
 
-New workflows support validated single-layer six-family models and +x/+w.
-Time-stratified, fossil-hook and trait-coupled uncertainty are explicitly rejected
-until separately validated; support in a legacy likelihood interface does not
-automatically validate a new uncertainty workflow.
+New probability contracts and uncertainty workflows support the six standard model
+families, spatial/environmental/area modifiers (`+x`, `+n`, `+w`, `+u`,
+`areas_adjacency`), and multi-layer time stratification (`timeperiods`) with
+chronologically monotone area emergence (`areas_allowed`). Non-monotone
+submergence masks, fossil hooks, fixed internal observations and trait-coupled
+models remain explicitly rejected outside `legacy_unconditioned`.

@@ -3,9 +3,13 @@
 The `v1.2` branch is a development release (Python `1.2.0.dev0`, R
 `1.2.0.9000`). It adds explicit probability contracts, prepared simulation,
 profile intervals, parametric bootstrap tests, conditional model/tree summaries,
-and mapping precision diagnostics. New workflows support the validated single-layer
-six standard model families and distance/manual dispersal modifiers. Time-stratified,
-fossil-hook and trait-coupled uncertainty workflows remain explicitly disabled.
+and mapping precision diagnostics. New probability contracts (`tip_survival` and
+`unconditional_complete`) and uncertainty workflows support the six standard model
+families, spatial/environmental/area modifiers (`+x`, `+n`, `+w`, `+u`,
+`areas_adjacency`), and multi-stratum time slicing (`timeperiods`) with
+chronologically monotone island/area emergence (`areas_allowed`). Non-monotone
+hard-submergence masks, fossil hooks, fixed internal observations, and
+trait-coupled models remain explicitly restricted to `legacy_unconditioned`.
 
 R now defaults to `StrictF64`; request `options(RustBEARS.precision="LegacyF32")`
 for historical arithmetic. Contract C retains the historical score; A conditions
@@ -40,7 +44,7 @@ GitHub CI. See [build and validation notes](docs/CI_BUILD_NOTES.md).
 
 - **Machine-Precision Equivalence (`10^-14`)**: Supports both **`LegacyF32` (`legacy_f32`)**—which faithfully emulates the historical 32-bit single-precision (`f32`) and decimal step-rounding boundary effects across matrix construction, cladogenetic weights, MaxEnt scaling, and `EXPOKIT` Arnoldi stepping ($9.95 \times 10^{-14}$ median $|\Delta\text{LnL}|$ across 1,339 empirical configurations from 77 published studies)—and **`StrictF64` (`strict_f64`)** pure 64-bit IEEE-754 reference arithmetic.
 - **Multi-Basin Cold-Start Optimization**: Tree-scaled interior probes, quadratic infeasible-domain guidance, and scaled absolute-step boundary refinement eliminate flat-penalty stalls on deep-time phylogenies (100% blind non-inferiority across 1,331 empirical fits; rescues 37 suboptimal historical local stalls and solves high-dimensional models up to 848 discrete states).
-- **Deterministic Multi-Threaded Stochastic Mapping (BSM)**: Accelerates biogeographical stochastic mapping by a median of **171-fold** single-threaded (up to **2,800-fold**) with an additional **8.59-fold** strong scaling across 8 CPU cores, while guaranteeing **bit-identical per-map event histories** on a given platform across `1, 2, 4, 8, ...` threads via independent four-lane keyed `Xoshiro256PlusPlus` streams derived from `(seed, map_index, stratum, step)`.
+- **Deterministic Multi-Threaded Stochastic Mapping (BSM)**: Accelerates biogeographical stochastic mapping via whole-tree endpoint-conditioned uniformization (a median **171-fold** speedup at 4–8 threads vs. single-process upstream R across 30 empirical studies, with **7.64-fold** strong scaling across 8 CPU cores on 256-state histories on an idle host), while guaranteeing **bit-identical per-map event histories** on a given platform across `1, 2, 4, 8, ...` threads via independent four-lane keyed `Xoshiro256PlusPlus` streams derived from `(seed, map_index, stratum, step)`.
 - **Offline Native Build**: The bundled Cargo vendor directory (`rust/vendor`) builds with a modern Rust toolchain. Current verification covers Linux and macOS; retained Windows build support is outside this verification.
 
 ---
