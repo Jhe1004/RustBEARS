@@ -340,7 +340,7 @@ def _summarize_fit_rows(rows: list[dict], d_true: float, e_true: float, e_max: f
 
 
 def _strat_cal_worker(args):
-    rep_idx, tree_str, areas, tip_dict, times, allowed_rows, d_true, e_true = args
+    rep_idx, tree_str, areas, tip_dict, times, allowed_rows, d_true, e_true, n_boot = args
     geog = b.io.TipRanges(tuple(areas), {k: tuple(v) for k, v in tip_dict.items()})
 
     def make_tpl(fam):
@@ -376,7 +376,7 @@ def _strat_cal_worker(args):
 
     hit_d, cens_d = covers(df_p.loc["d"], d_true)
     hit_e, cens_e = covers(df_p.loc["e"], e_true)
-    boot = b.bootstrap_lrt(f0, f1, n_boot=99, num_threads=1, seed=20261200 + rep_idx)
+    boot = b.bootstrap_lrt(f0, f1, n_boot=n_boot, num_threads=1, seed=20261200 + rep_idx)
     d_obs = max(0.0, 2.0 * (f1.lnL - f0.lnL))
     return dict(
         d_hat=float(f0.params["d"]),
@@ -386,7 +386,7 @@ def _strat_cal_worker(args):
         hit_e=hit_e,
         cens_e=cens_e,
         d_obs=d_obs,
-        boot_pval=float(boot.pval),
+        boot_pval=float(boot.pval_mc_conservative),
         aicc_fp=bool(f1.aicc < f0.aicc),
     )
 
@@ -473,7 +473,7 @@ def run_v3_1_simulations(workers: int = 32) -> dict:
             (
                 r, strat_tree, st_areas,
                 {lbl: st_states[int(st)] for lbl, st in zip(sim_st.tip_labels, sim_st.tip_states[r])},
-                times, allowed_rows, d_st, e_st,
+                times, allowed_rows, d_st, e_st, 99,
             )
             for r in range(100)
         ]
