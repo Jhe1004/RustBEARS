@@ -367,11 +367,12 @@ def _strat_cal_worker(args):
 
     def covers(row, truth):
         lo = float(row["lower"]) if pd.notna(row["lower"]) else 0.0
-        if bool(row["censored_at_box_upper"]) or pd.isna(row["upper"]):
+        is_cens = str(row["status_upper"]) == "censored_at_box_upper"
+        if is_cens or pd.isna(row["upper"]):
             hi = float("inf")
         else:
             hi = float(row["upper"])
-        return bool(lo <= truth <= hi), bool(row["censored_at_box_upper"])
+        return bool(lo <= truth <= hi), is_cens
 
     hit_d, cens_d = covers(df_p.loc["d"], d_true)
     hit_e, cens_e = covers(df_p.loc["e"], e_true)
