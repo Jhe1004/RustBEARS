@@ -1,19 +1,24 @@
-# RustBEARS (Drop-in R Interface Compatible with BioGeoBEARS)
+# RustBEARS (R Package)
 
-`RustBEARS` provides a self-contained, memory-safe Rust computational engine (`rustc >= 1.82`, `R >= 4.0.0`, `GPL >= 3`) for probabilistic historical biogeography while keeping all function signatures, S3/S4 return structures, and plotting workflows of `BioGeoBEARS` (Matzke 2013, 2014) 100% compatible.
-
-Named `RustBEARS` to respect and preserve the upstream `BioGeoBEARS` CRAN/GitHub namespace so both packages can coexist cleanly on the same machine.
+`RustBEARS` (`1.2.0`) is a drop-in R interface compatible with `BioGeoBEARS` (Matzke 2013, 2014), backed by a memory-safe Rust computational engine requiring no external Fortran (`rexpokit`) or C++ (`cladoRcpp`) package compilation.
 
 ## Installation
 
+Ensure a Rust toolchain (`rustc >= 1.82`, `cargo`) is installed from <https://rustup.rs/>, then install from GitHub in R:
+
+```r
+if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
+remotes::install_github("Jhe1004/RustBEARS", subdir = "r_package/RustBEARS")
+```
+
+Or from a local repository clone:
+
 ```bash
-# On Windows with Rtools, ensure a GNU Rust target is installed once:
-# rustup target add x86_64-pc-windows-gnu
 R CMD INSTALL r_package/RustBEARS
 ```
 
-## Usage
+## Quick Usage
 
-Replace `library(BioGeoBEARS)` with `library(RustBEARS)`—all downstream `define_BioGeoBEARS_run()`, `bears_optim_run()`, `runBSM()`, and `plot_BioGeoBEARS_results()` calls run unmodified.
+Replace `library(BioGeoBEARS)` with `library(RustBEARS)` to accelerate existing scripts unchanged, or enable tip-survival conditioning (`run$likelihood_conditioning <- "tip_survival"`) and uncertainty quantification (`profile_ci`, `bootstrap_lrt`, `model_average`, `fit_over_trees`, `bsm_diagnostics`). See the top-level repository guides ([English](../../docs/R_User_Guide.md) | [简体中文](../../docs/R_User_Guide_zh-CN.md)) for complete tutorials.
 
-Please run `citation("RustBEARS")` and co-cite both Matzke (2013, 2014) and RustBEARS. Report technical issues to https://github.com/Jhe1004/RustBEARS/issues.
+When publishing analyses with `RustBEARS`, please run `citation("RustBEARS")` and cite Matzke (2013, 2014) alongside `RustBEARS`.

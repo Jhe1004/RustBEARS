@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 import sys
 
-from . import BioGeoBEARS, compare_models, plot_bsm
+from . import BioGeoBEARS, RootPriorSpec, compare_models, plot_bsm
 
 
 def _run_cli(argv=None):
@@ -17,6 +17,12 @@ def _run_cli(argv=None):
     fit.add_argument("--max-range-size", type=int)
     fit.add_argument("--use-ambiguities", action="store_true", help="Expand '?' tip geography ambiguities")
     fit.add_argument("--precision", choices=["legacy_f32", "strict_f64"], default="strict_f64")
+    fit.add_argument(
+        "--likelihood-conditioning",
+        choices=["legacy_unconditioned", "tip_survival", "unconditional_complete"],
+        default="legacy_unconditioned",
+        help="Likelihood formulation (default: legacy_unconditioned; use tip_survival for extant clades)",
+    )
     fit.add_argument("--timeperiods")
     for name in ("distances", "envdistances", "areas-allowed", "areas-adjacency", "dispersal-multipliers"):
         fit.add_argument("--" + name)
@@ -46,6 +52,7 @@ def _run_cli(argv=None):
                 "max_range_size",
                 "use_ambiguities",
                 "precision",
+                "likelihood_conditioning",
                 "timeperiods",
                 "distances",
                 "envdistances",
@@ -54,6 +61,10 @@ def _run_cli(argv=None):
                 "dispersal_multipliers",
             )
         }
+        if args.likelihood_conditioning in ("tip_survival", "unconditional_complete"):
+            opts["root_prior"] = RootPriorSpec("uniform_nonnull")
+        if args.likelihood_conditioning == "unconditional_complete":
+            opts["allow_null_tips"] = True
         for name in model_names:
             model = BioGeoBEARS(args.tree, args.geog, name, **opts)
             result = model.fit(num_threads=args.threads)

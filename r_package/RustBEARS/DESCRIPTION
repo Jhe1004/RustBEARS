@@ -1,8 +1,8 @@
 Package: RustBEARS
 Type: Package
 Title: Rust-Accelerated Probabilistic Historical Biogeography Compatible with 'BioGeoBEARS'
-Version: 1.2.0.9000
-Date: 2026-11-15
+Version: 1.2.0
+Date: 2026-11-21
 Authors@R: c(
     person("Nicholas J.", "Matzke", role = c("aut", "cph"),
            comment = "Original creator and foundational author of BioGeoBEARS, rexpokit, and cladoRcpp"),

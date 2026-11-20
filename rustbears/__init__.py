@@ -23,7 +23,7 @@ from .uncertainty.averaging import ModelAverageResult, model_average
 from .uncertainty.diagnostics import BSMDiagnosticsResult, bsm_diagnostics, run_bsm_adaptive
 from .uncertainty.multitree import MultiTreeFitResult, fit_over_trees, TreeFailureError
 
-__version__ = "1.2.0.dev0"
+__version__ = "1.2.0"
 from .bsm import BSMResult, count_ana_clado_events, get_inputs_for_stochastic_mapping, runBSM, simulate_source_areas_ana_clado
 from .plotting import plot_bsm
 from .stats import AkaikeWeights_on_summary_table, compare_models, lrttest

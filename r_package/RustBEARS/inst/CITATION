@@ -26,10 +26,10 @@ bibentry(
 
 bibentry(
   bibtype = "Manual",
-  title   = "RustBEARS: Unified Rust Computational Engine for Probabilistic Historical Biogeography",
+  title   = "RustBEARS: Survival-Conditioned Likelihoods, Uniformization Stochastic Mapping, and Uncertainty Quantification for Historical Biogeography",
   author  = person("Jian", "He"),
   year    = "2026",
-  note    = "Development snapshot: R 1.2.0.9000; Python 1.2.0.dev0. Report the source commit with this citation.",
+  note    = "R and Python package version 1.2.0",
   url     = "https://github.com/Jhe1004/RustBEARS"
 )
 

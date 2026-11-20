@@ -1,178 +1,236 @@
 # RustBEARS
 
-The `v1.2` branch is a development release (Python `1.2.0.dev0`, R
-`1.2.0.9000`). It adds explicit probability contracts, prepared simulation,
-profile intervals, parametric bootstrap tests, conditional model/tree summaries,
-and mapping precision diagnostics. New probability contracts (`tip_survival` and
-`unconditional_complete`) and uncertainty workflows support the six standard model
-families, spatial/environmental/area modifiers (`+x`, `+n`, `+w`, `+u`,
-`areas_adjacency`), and multi-stratum time slicing (`timeperiods`) with
-chronologically monotone island/area emergence (`areas_allowed`). Non-monotone
-hard-submergence masks, fossil hooks, fixed internal observations, and
-trait-coupled models remain explicitly restricted to `legacy_unconditioned`.
-
-R now defaults to `StrictF64`; request `options(RustBEARS.precision="LegacyF32")`
-for historical arithmetic. Contract C retains the historical score; A conditions
-on nonempty tips and B completes empty-state transmission. Historical scores do
-not silently become normalized generating models.
-
-Read the [implementation contract](docs/v1.2-implementation-contract.md),
-[Python tutorial](docs/uncertainty-workflow-python.en.md), and
-[Chinese Python tutorial](docs/uncertainty-workflow-python.md). Development checks
-are separate from the planned large calibration study: neither a working example
-nor a CI configuration establishes a completed publication validation.
-
-The current verification scope is **Linux and macOS**. Windows is omitted at the
-user's request; its build code remains available but is not certified by this
-verification. GitHub-hosted runs are currently blocked by account billing or
-spending limits. Complete checks on the local macOS host and Tongfang Linux are
-recorded separately as local verification, without presenting them as successful
-GitHub CI. See [build and validation notes](docs/CI_BUILD_NOTES.md).
+<p align="left">
+  <strong>English</strong> | <a href="README_zh-CN.md">简体中文</a>
+</p>
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Release-v1.2.0-success.svg)](CHANGELOG.md)
 [![Rust Core](https://img.shields.io/badge/Rust-1.82%2B-orange.svg)](rust/Cargo.toml)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](pyproject.toml)
-[![R](https://img.shields.io/badge/R-4.0%2B-276DC3.svg)](r_package/RustBEARS/DESCRIPTION)
+[![R Package](https://img.shields.io/badge/R-4.0%2B-276DC3.svg)](r_package/RustBEARS/DESCRIPTION)
+[![Python Package](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](pyproject.toml)
 
-**`RustBEARS`** is a self-contained, memory-safe **Rust computational engine** for the [`BioGeoBEARS`](http://phylo.wikidot.com/biogeobears) probabilistic historical biogeography framework (Matzke 2013, 2014). It provides both a **function-compatible R package** (`RustBEARS`) and a **native Python package & CLI** (`rustbears`) without requiring external Fortran 77 (`rexpokit`/`EXPOKIT`) or C++ (`cladoRcpp`) package compilation.
-
-> **Why `RustBEARS`?** Naming our modernized derivative `RustBEARS` (and `rustbears` in Python) preserves full namespace sovereignty for the original creator's `BioGeoBEARS` packages across CRAN, PyPI, and GitHub, allows `RustBEARS` and legacy `BioGeoBEARS` to be installed side-by-side on the same machine, and keeps 100% of downstream R function signatures (`define_BioGeoBEARS_run`, `bears_optim_run`, `runBSM`, `plot_BioGeoBEARS_results`) drop-in compatible.
+**RustBEARS** is a memory-safe, parallel **Rust computational engine** for probabilistic historical biogeography, accompanied by a **BioGeoBEARS-compatible R package** (`RustBEARS`) and a **native Python package & CLI** (`rustbears`). It requires no external Fortran 77 (`rexpokit`) or C++ (`cladoRcpp`) package compilation.
 
 ---
 
-## Key Capabilities
+## Why RustBEARS?
 
-- **Machine-Precision Equivalence (`10^-14`)**: Supports both **`LegacyF32` (`legacy_f32`)**—which faithfully emulates the historical 32-bit single-precision (`f32`) and decimal step-rounding boundary effects across matrix construction, cladogenetic weights, MaxEnt scaling, and `EXPOKIT` Arnoldi stepping ($9.95 \times 10^{-14}$ median $|\Delta\text{LnL}|$ across 1,339 empirical configurations from 77 published studies)—and **`StrictF64` (`strict_f64`)** pure 64-bit IEEE-754 reference arithmetic.
-- **Multi-Basin Cold-Start Optimization**: Tree-scaled interior probes, quadratic infeasible-domain guidance, and scaled absolute-step boundary refinement eliminate flat-penalty stalls on deep-time phylogenies (100% blind non-inferiority across 1,331 empirical fits; rescues 37 suboptimal historical local stalls and solves high-dimensional models up to 848 discrete states).
-- **Deterministic Multi-Threaded Stochastic Mapping (BSM)**: Accelerates biogeographical stochastic mapping via whole-tree endpoint-conditioned uniformization (a median **171-fold** speedup at 4–8 threads vs. single-process upstream R across 30 empirical studies, with **7.64-fold** strong scaling across 8 CPU cores on 256-state histories on an idle host), while guaranteeing **bit-identical per-map event histories** on a given platform across `1, 2, 4, 8, ...` threads via independent four-lane keyed `Xoshiro256PlusPlus` streams derived from `(seed, map_index, stratum, step)`.
-- **Offline Native Build**: The bundled Cargo vendor directory (`rust/vendor`) builds with a modern Rust toolchain. Current verification covers Linux and macOS; retained Windows build support is outside this verification.
+1. **Drop-In BioGeoBEARS Compatibility & High Speed**
+   - Retains all **545 public R functions, S4 classes, and plotting utilities** of [`BioGeoBEARS`](http://phylo.wikidot.com/biogeobears) (Matzke 2013, 2014)—existing R scripts run unchanged simply by replacing `library(BioGeoBEARS)` with `library(RustBEARS)`.
+   - Reproduces `BioGeoBEARS` log-likelihoods (`median |ΔlnL| = 9.95e-14`) and ancestral probabilities (`<= 1.50e-14`) across 1,339 configurations from 77 published studies, while accelerating 64- to 256-state optimization **2.8–17.3×** on 1 core and **10.9–205.5×** on 8 cores.
+2. **Extant Tip-Survival-Conditioned Likelihoods**
+   - Corrects the unconditioned null-range survivorship bias that drives DEC local extinction estimates toward zero and inflates support for founder-event speciation (`+J`), across both unstratified phylogenies and multi-stratum models with chronologically emerging islands.
+3. **Trial-Free Uniformization Stochastic Mapping**
+   - Replaces trial-limited branch-wise rejection sampling with endpoint-conditioned **Uniformization** Markov bridges (**170.9×** median speedup across 30 empirical studies), resolving rare stepping-stone pathways without trial-limit failures and guaranteeing deterministic per-map histories regardless of thread count.
+4. **Integrated Frequentist Uncertainty Quantification**
+   - Built-in routines for **profile likelihood confidence intervals**, **parametric bootstrap likelihood-ratio tests** (with resumable checkpoints), **Akaike model averaging**, **external posterior-tree propagation**, and **stochastic mapping Monte Carlo precision / MCMC ESS diagnostics**.
+
+---
+
+## Documentation
+
+| Guide | English | 简体中文 |
+| :--- | :--- | :--- |
+| **Repository Overview & Quick Start** | **README.md** (this page) | [README_zh-CN.md](README_zh-CN.md) |
+| **R Package User Guide** (`library(RustBEARS)`) | [docs/R_User_Guide.md](docs/R_User_Guide.md) | [docs/R_User_Guide_zh-CN.md](docs/R_User_Guide_zh-CN.md) |
+| **Python API & CLI Guide** (`import rustbears` / `rustbears`) | [docs/Python_and_CLI_Guide.md](docs/Python_and_CLI_Guide.md) | [docs/Python_and_CLI_Guide_zh-CN.md](docs/Python_and_CLI_Guide_zh-CN.md) |
+| **Statistical Formulations & Scope** | [docs/Statistical_Methods_and_Contracts.md](docs/Statistical_Methods_and_Contracts.md) | [docs/Statistical_Methods_and_Contracts.md](docs/Statistical_Methods_and_Contracts.md) |
+| **Runnable Example Scripts** | [`examples/quickstart_r.R`](examples/quickstart_r.R) · [`examples/uncertainty_workflow.R`](examples/uncertainty_workflow.R) · [`examples/quickstart_python.py`](examples/quickstart_python.py) | 同左 |
+
+---
+
+## Installation
+
+### Step 0: Prerequisite (Rust Toolchain)
+
+Install a standard Rust toolchain (`rustc >= 1.82` and `cargo`) once via [rustup.rs](https://rustup.rs/):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+*(All Rust crates are vendored inside the repository, so compilation requires no external Rust network downloads. On Windows with Rtools, add the GNU target once: `rustup target add x86_64-pc-windows-gnu`.)*
+
+---
+
+### Option A: Install the R Package (`RustBEARS`, R >= 4.0)
+
+**Install directly from GitHub in R** (automatically resolves CRAN and archived `MultinomialCI` dependencies):
+
+```r
+if (!requireNamespace("remotes", quietly = TRUE)) {
+  install.packages("remotes", repos = "https://cloud.r-project.org")
+}
+remotes::install_github("Jhe1004/RustBEARS", subdir = "r_package/RustBEARS")
+```
+
+*(Alternatively, using `pak`: `pak::pkg_install("Jhe1004/RustBEARS/r_package/RustBEARS")`.)*
+
+**Or install from a local clone:**
+
+```bash
+git clone https://github.com/Jhe1004/RustBEARS.git
+cd RustBEARS
+R CMD INSTALL r_package/RustBEARS
+```
+
+---
+
+### Option B: Install the Python Package & CLI (`rustbears`, Python >= 3.10)
+
+**Install directly from GitHub:**
+
+```bash
+python3 -m pip install "git+https://github.com/Jhe1004/RustBEARS.git"
+```
+
+**Or install from a local clone:**
+
+```bash
+git clone https://github.com/Jhe1004/RustBEARS.git
+cd RustBEARS
+python3 -m pip install .
+```
+
+Verify the command-line tool:
+
+```bash
+rustbears fit --help
+```
+
+---
+
+## Quick Start
+
+### 1. R Quick Start (Bundled Hawaiian *Psychotria* Dataset)
+
+```r
+library(RustBEARS)
+
+# 1. Define a standard BioGeoBEARS run using bundled example files
+trfn   <- system.file("extdata/Psychotria_5.2_ultrametric.newick", package = "RustBEARS")
+geogfn <- system.file("extdata/Psychotria_geog.data", package = "RustBEARS")
+
+run <- define_BioGeoBEARS_run(
+  trfn = trfn,
+  geogfn = geogfn,
+  max_range_size = 4,
+  num_cores_to_use = 1L,
+  print_optim = FALSE
+)
+
+# 2. Optional: Enable extant tip-survival conditioning (omit for legacy BioGeoBEARS mode)
+run$likelihood_conditioning <- "tip_survival"
+run$root_prior <- define_root_prior("uniform_nonnull")
+run <- readfiles_BioGeoBEARS_run(run)
+
+# 3. Fit DEC and DEC+J
+fit_dec <- bears_optim_run(run)
+
+run_j <- run
+run_j$BioGeoBEARS_model_object@params_table["j", "type"] <- "free"
+run_j$BioGeoBEARS_model_object@params_table["j", c("init", "est")] <- 0.01
+fit_decj <- bears_optim_run(run_j)
+
+# 4. Profile likelihood 95% confidence intervals & model averaging
+ci_dec <- profile_ci(fit_dec, params = c("d", "e"))
+print(ci_dec)
+
+avg <- model_average(list(DEC = fit_dec, DECJ = fit_decj), criterion = "AICc", num_maps = 200L, seedval = 42L)
+print(avg$weights)
+```
+
+👉 See **[docs/R_User_Guide.md](docs/R_User_Guide.md)** for legacy script migration, multi-stratum island emergence, Uniformization `runBSM()`, `bootstrap_lrt()`, and multi-tree propagation `fit_over_trees()`.
+
+---
+
+### 2. Python & CLI Quick Start
+
+```python
+import rustbears as rb
+
+tree = "((K_sp1:2.0,O_sp1:2.0):2.0,((O_sp2:1.0,M_sp1:1.0):1.5,(M_sp2:1.0,H_sp1:1.0):1.5):1.5);"
+geog = {
+    "K_sp1": "1100", "O_sp1": "0100", "O_sp2": "0110",
+    "M_sp1": "0010", "M_sp2": "0011", "H_sp1": "0001",
+}
+
+# Fit candidate models under extant tip-survival conditioning
+models = ["DEC", "DEC+J", "DIVALIKE", "DIVALIKE+J", "BAYAREALIKE", "BAYAREALIKE+J"]
+fits = [
+    rb.BioGeoBEARS(
+        tree=tree,
+        geog=geog,
+        model=m,
+        max_range_size=4,
+        likelihood_conditioning="tip_survival",
+        root_prior=rb.RootPriorSpec("uniform_nonnull"),
+    ).fit(num_threads=4)
+    for m in models
+]
+
+print(rb.compare_models(fits))
+
+# Akaike model-averaged Uniformization stochastic mapping & MCSE diagnostics
+avg = rb.model_average(fits, criterion="AIC")
+maps = avg.run_bsm(num_maps=200, num_threads=4, seed=42)
+diag = rb.bsm_diagnostics(maps)
+print(maps.summary_counts["event_means"])
+```
+
+**Command-line batch execution:**
+
+```bash
+rustbears fit \
+  --tree tree.newick \
+  --geog geography.data \
+  --models DEC,DEC+J,DIVALIKE,DIVALIKE+J,BAYAREALIKE,BAYAREALIKE+J \
+  --max-range-size 4 \
+  --likelihood-conditioning tip_survival \
+  --maps 200 \
+  --threads 4 \
+  --out-dir results_biogeography
+```
+
+👉 See **[docs/Python_and_CLI_Guide.md](docs/Python_and_CLI_Guide.md)** for full Python class parameters, stratified models, resumable bootstrap tests, posterior tree propagation, and CLI flags.
+
+---
+
+## Precision Modes & Likelihood Formulations
+
+- **Numerical Precision**: Defaults to 64-bit IEEE-754 double precision (`StrictF64` in R; `precision="strict_f64"` in Python). To reproduce historical 32-bit `cladoRcpp` / `EXPOKIT` rounding behavior bit-for-bit, set `options(RustBEARS.precision = "LegacyF32")` in R or `precision="legacy_f32"` in Python.
+- **Likelihood Formulations**:
+  1. `"legacy_unconditioned"` *(default for backward compatibility)*: Unconditioned pruning score matching upstream `BioGeoBEARS` (supports fossil tips, non-monotone masks, and trait-coupled models).
+  2. `"tip_survival"`: Conditions observed ranges on all sampled extant tips surviving to the present with non-empty ranges (supports DEC, DIVALIKE, BAYAREALIKE, `+J`, spatial modifiers, and multi-stratum chronological area emergence).
+  3. `"unconditional_complete"`: Normalized generative probability distribution over all $S^N$ tip outcomes (including null tips) for complete-space forward simulation and probability-sum verification.
 
 ---
 
 ## Repository Structure
 
 ```text
-├── rust/                       # Unified Rust workspace (bgb-core, bgb-numerics, bgb-clado, bgb-Step, bgb-bsm, bgb-ffi)
-├── rustbears/                  # Native Python package & CLI (`import rustbears`)
-├── r_package/RustBEARS/        # Function-compatible R package (`library(RustBEARS)`)
-├── tests/                      # Self-contained Python & R regression test suites + empirical edge fixtures
-├── scripts/                    # Reproducible release synchronization and R source tarball builder
-├── CITATION.cff                # Programmatic co-citation metadata (Matzke 2013, 2014 + RustBEARS)
-├── NOTICE-Rust-port.md         # Upstream copyright chain, component license matrix, and provenance
-├── THIRD_PARTY_LICENSES.md     # Full license texts for vendored MIT crates and reference BLAS/LAPACK
+├── rust/                       # Shared Rust engine (bgb-core, bgb-numerics, bgb-clado, bgb-Step, bgb-bsm, bgb-ffi)
+├── r_package/RustBEARS/        # BioGeoBEARS-compatible R package (`library(RustBEARS)`)
+├── rustbears/                  # Native Python package & CLI (`import rustbears` / `rustbears`)
+├── docs/                       # English & Simplified Chinese guides for R, Python, CLI, and methods
+├── examples/                   # Ready-to-run R and Python quickstart & uncertainty scripts
+├── tests/                      # Rust, R, and Python regression & statistical test suites
+├── scripts/                    # Source synchronization, release builder, and benchmark scripts
+├── CITATION.cff                # Co-citation metadata
 └── LICENSE                     # GNU General Public License v3.0 or later (GPL-3.0-or-later)
 ```
 
 ---
 
-## Installation
+## Citation & License
 
-### Prerequisites
-- **Rust toolchain** (`cargo` and `rustc >= 1.82`): install via [rustup.rs](https://rustup.rs/).
-  - *Windows R package note*: Rtools uses a MinGW/GNU linker; if your default Windows Rust host is MSVC, add the GNU target once via `rustup target add x86_64-pc-windows-gnu`.
+`RustBEARS` is distributed under the **GNU General Public License v3.0 or later (`GPL-3.0-or-later`)** (see [`LICENSE`](LICENSE), [`NOTICE-Rust-port.md`](NOTICE-Rust-port.md), and [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)).
 
-### 1. Python Package (`rustbears`)
+When publishing analyses conducted with `RustBEARS`, please cite **both** the foundational `BioGeoBEARS` articles by Nicholas J. Matzke and `RustBEARS` (run `citation("RustBEARS")` in R or see [`CITATION.cff`](CITATION.cff)):
 
-Install into an existing scientific Python (`>= 3.10`) environment containing `numpy`, `scipy`, `pandas`, and `matplotlib`:
+- Matzke, N. J. (2013). Probabilistic historical biogeography: new models for founder-event speciation, imperfect detection, and fossils allow improved accuracy and model-testing. *Frontiers of Biogeography*, 5(4), 242–248. https://doi.org/10.21425/F5FBG19694
+- Matzke, N. J. (2014). Model selection in historical biogeography reveals that founder-event speciation is a crucial process in island clades. *Systematic Biology*, 63(6), 951–970. https://doi.org/10.1093/sysbio/syu056
+- He, J. (2026). RustBEARS: Survival-conditioned likelihoods, Uniformization stochastic mapping, and uncertainty quantification for historical biogeography (v1.2.0). https://github.com/Jhe1004/RustBEARS
 
-```bash
-python -m pip install numpy scipy pandas matplotlib
-python -m pip install --no-build-isolation --no-deps .
-```
-
-### 2. R Package (`RustBEARS`)
-
-Requires R `>= 4.0.0`. No `rexpokit` or `cladoRcpp` Fortran/C++ compilation is required. Build and install directly from `r_package/RustBEARS`:
-
-The legacy multinomial-summary dependency `MultinomialCI` is archived on CRAN.
-The package's `Remotes` field retains version 1.2 from the official CRAN archive.
-To install required R dependencies and the local package, run:
-
-```r
-install.packages("pak", repos = "https://cloud.r-project.org")
-pak::pkg_install("local::r_package/RustBEARS",
-                 dependencies = c("Depends", "Imports", "LinkingTo"))
-```
-
-If the dependencies are already installed, use:
-
-```bash
-R CMD INSTALL r_package/RustBEARS
-```
-
-Or generate a reproducible source tarball first via `./scripts/build_release_artifacts.sh` and install the versioned `dist/RustBEARS_*.tar.gz` file.
-
----
-
-## Quick Start
-
-### Python API & CLI
-
-```python
-from rustbears import RustBEARS, compare_models
-
-# Fit standard or +J models (precision="legacy_f32" or "strict_f64")
-models = ["DEC", "DEC+J", "DIVALIKE", "DIVALIKE+J", "BAYAREALIKE", "BAYAREALIKE+J"]
-fits = [
-    RustBEARS("tree.newick", "geography.data", model=m, max_range_size=4, precision="legacy_f32").fit()
-    for m in models
-]
-print(compare_models(fits))
-
-# Deterministic multi-threaded Biogeographical Stochastic Mapping (200+ maps in sub-second runtime)
-best_fit = fits[1]
-maps = best_fit.run_bsm(num_maps=200, num_threads=8, seed=12345)
-print(maps.summary_counts["event_means"])
-```
-
-Command-line batch execution:
-
-```bash
-rustbears fit --tree tree.newick --geog geography.data \
-  --models DEC,DEC+J,DIVALIKE,DIVALIKE+J,BAYAREALIKE,BAYAREALIKE+J \
-  --max-range-size 4 --out-dir results
-```
-
-### R Compatibility Layer (`library(RustBEARS)`)
-
-Replace `library(BioGeoBEARS)` with `library(RustBEARS)`—all downstream `BioGeoBEARS` modelling, BSM, and plotting functions run **without modification**:
-
-```r
-library(RustBEARS)
-
-# Switch between legacy rounding emulation ("LegacyF32", default) and pure 64-bit ("StrictF64")
-options(RustBEARS.precision = "LegacyF32")
-
-BioGeoBEARS_run_object <- define_BioGeoBEARS_run()
-BioGeoBEARS_run_object$trfn <- "tree.newick"
-BioGeoBEARS_run_object$geogfn <- "geography.data"
-BioGeoBEARS_run_object$max_range_size <- 4
-
-res <- bears_optim_run(BioGeoBEARS_run_object)
-```
-
-### Frontend Interface Conventions (R vs. Python)
-
-- **Ambiguous Tip Geography (`?`)**: Both frontends reject or ignore unexpanded `?` wildcards by default and expand partial/complete `?` tip encodings identically when explicitly enabled (`BioGeoBEARS_run_object$useAmbiguities <- TRUE` in R; `use_ambiguities=True` or `--use-ambiguities` in Python).
-- **Fossil Hook / Zero-Length Branches**: The shared Rust likelihood kernel routes any branch shorter than `min_branchlength` (default `1e-6`) as a direct-ancestor fossil hook. Python (`RustBEARS`) accepts exact `0.0` branch lengths in Newick strings directly, whereas R's top-level `check_BioGeoBEARS_run()` preserves the historical upstream guard against `<= 0` edge lengths (use a positive hook length `< min_branchlength`, such as `1e-8`, in top-level R runs).
-
----
-
-## Verification & Regression Tests
-
-Run the full release verification script (or execute the Rust and Python tests directly):
-
-```bash
-./scripts/build_release_artifacts.sh
-```
-
----
-
-## Community Governance, License & Scholarly Co-Citation
-
-1. **Open-Source License Inheritance (`GPL-3.0-or-later`)**: Newly authored Rust crates are licensed under `GPL-2.0-or-later`; because the combined distribution retains upstream `BioGeoBEARS` R scripts carrying both `GPL (>= 2)` and `GPL-3` / `GPL (>= 3)` headers, the combined repository and packages are distributed under **`GPL-3.0-or-later`** (see [`LICENSE`](LICENSE), [`NOTICE-Rust-port.md`](NOTICE-Rust-port.md), and [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)).
-2. **Scholarly Co-Citation**: As a matter of academic attribution, when publishing analyses performed with `RustBEARS`, **please cite both the foundational `BioGeoBEARS` publications by Nicholas J. Matzke and `RustBEARS`** (see `citation("RustBEARS")` in R or [`CITATION.cff`](CITATION.cff)):
-   - Matzke, N. J. (2013). Probabilistic historical biogeography: new models for founder-event speciation, imperfect detection, and fossils allow improved accuracy and model-testing. *Frontiers of Biogeography*, 5(4), 242–248. https://doi.org/10.21425/F5FBG19694
-   - Matzke, N. J. (2014). Model selection in historical biogeography reveals that founder-event speciation is a crucial process in island clades. *Systematic Biology*, 63(6), 951–970. https://doi.org/10.1093/sysbio/syu056
-   - He, J. (2026). RustBEARS: Unified Rust computational engine for probabilistic historical biogeography (v1.1.4). https://github.com/Jhe1004/RustBEARS
-3. **Explicit Derivative Naming & Support Boundary**: `RustBEARS` is an independent modernized derivative maintained by the refactoring authors. **Please report all installation, compilation, or runtime issues regarding `RustBEARS` to [GitHub Issues](https://github.com/Jhe1004/RustBEARS/issues)** so that the original upstream author is not burdened with derivative support requests.
+Please report any installation, compilation, or runtime questions via [GitHub Issues](https://github.com/Jhe1004/RustBEARS/issues).

@@ -1,38 +1,15 @@
-# Maintenance and supported scope
+# Maintenance and Supported Scope
 
-RustBEARS v1.2 is currently a development release. The project plan commits to
-at least five years of active maintenance after the first stable v1.2 release.
-That period begins on the recorded release date, not the date of this draft.
-Jian He is the RustBEARS maintainer. The project preserves attribution and
-co-citation of the original BioGeoBEARS framework by Nicholas J. Matzke.
+`RustBEARS` is maintained by Jian He while preserving full attribution and scholarly co-citation of the foundational `BioGeoBEARS` framework by Nicholas J. Matzke (2013, 2014).
 
-Maintenance covers installation, compatibility with supported R and Python
-versions, reproducible numerical defects, and documentation. Issue reports
-should include the release or commit, operating system, precision mode,
-probability contract, complete model settings, and a minimal example. Each
-release will publish its actual operating-system test results. The current
-three-platform CI configuration still requires a successful remote run.
+## Reporting Issues
 
-The first stable v1.2 scope is single-layer rooted binary trees with a fixed
-range space: DEC, DIVALIKE, BAYAREALIKE, their +J alternatives, and validated
-distance/manual-multiplier modifiers. The new uncertainty APIs reject
-unvalidated time-stratified, direct-ancestor fossil, and trait-coupled models.
-These restrictions concern the new statistical APIs; the historical interface
-retains its separate compatibility contract.
+Please open bug reports and installation questions on [GitHub Issues](https://github.com/Jhe1004/RustBEARS/issues) and include:
+- `RustBEARS` version (or git commit SHA), operating system, and R / Python / `rustc` versions;
+- Precision mode (`StrictF64` / `strict_f64` vs. `LegacyF32` / `legacy_f32`) and likelihood formulation (`tip_survival`, `unconditional_complete`, or `legacy_unconditioned`);
+- A minimal reproducible script or tree/geography snippet.
 
-Likelihood profiles, bootstrap tests, model averaging, external-tree summaries,
-and mapping diagnostics have different inferential targets. The tutorials and
-returned metadata record those targets. Fixed-tree Monte Carlo precision,
-variation across external trees, and parameter uncertainty remain separate.
-An empirical stopping rule does not provide an anytime-valid confidence band.
+## Supported Modelling Scope
 
-## 维护范围
-
-项目承诺在首个稳定 v1.2 版本发布后至少主动维护五年，起算日以实际发布记录为准。
-维护内容包括安装与环境适配、可复现的数值问题和文档修订。问题报告应附版本或提交号、
-操作系统、精度模式、概率契约、完整模型设置和最小复现输入。每次发行保留实际的跨平台
-检查结果；当前 CI 配置尚不能证明三个操作系统均已通过。
-
-新统计模块首版支持单层、有根二叉树和固定状态空间。时间分层、直接祖先化石和性状
-耦合扩展须经各自验证后才解锁。维护承诺不改变这些科学适用边界，也不将条件推断解释
-为分子与地理数据的联合贝叶斯后验。
+- **Legacy compatibility mode (`legacy_unconditioned`)**: Supports the full historical `BioGeoBEARS` feature set, including fossil tips, non-monotone area masks, detection models, and trait-coupled workflows.
+- **Survival-conditioned (`tip_survival`) & complete unconditional (`unconditional_complete`) workflows**: Support contemporary ultrametric trees across DEC, DIVALIKE, BAYAREALIKE, and `+J` model families, spatial/environmental/area modifiers (`+x`, `+n`, `+w`, `+u`, `areas_adjacency`), and multi-stratum time slicing (`timeperiods`) with chronologically monotone area emergence (`areas_allowed`). Non-monotone submergence masks, non-contemporaneous fossil tips, and trait-coupled models remain restricted to `legacy_unconditioned`.

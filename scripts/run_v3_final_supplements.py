@@ -152,12 +152,14 @@ def simulate_bd_geog_reconstructed_tree(
                 # Speciation
                 lineage_events.append(("spec", nid, 0, lam))
                 total_rate += lam
-                # Range expansion (dispersal to each unoccupied area if sz < max_range)
+                # Range expansion (dispersal to each unoccupied area: rate from sz occupied areas is sz * d_rate,
+                # matching standard DEC generator sum_{from in A} d_{from, extra} in bgb-numerics/src/lib.rs:822-827)
                 if sz < max_range and d_rate > 0.0:
+                    disp_to_area_rate = sz * d_rate
                     for a in range(n_areas):
                         if not ((m >> a) & 1):
-                            lineage_events.append(("disp", nid, m | (1 << a), d_rate))
-                            total_rate += d_rate
+                            lineage_events.append(("disp", nid, m | (1 << a), disp_to_area_rate))
+                            total_rate += disp_to_area_rate
                 # Local extinction from each occupied area
                 if e_rate > 0.0 and (sz > 1 or not forbid_single_area_extinction):
                     for a in range(n_areas):
@@ -254,6 +256,27 @@ def simulate_bd_geog_reconstructed_tree(
     raise RuntimeError("Exceeded max_attempts in simulate_bd_geog_reconstructed_tree")
 
 
+def _fit_nested_alt(alt_bgb, null_fit):
+    """Fit nested +J alternative from default multi-basin search plus null-injected warm start."""
+    cands = [alt_bgb.fit(num_threads=1)]
+    try:
+        cands.append(
+            alt_bgb.fit(
+                num_threads=1,
+                initial={
+                    "d": float(null_fit.params["d"]),
+                    "e": float(null_fit.params["e"]),
+                    "j": 0.0,
+                },
+            )
+        )
+    except Exception:
+        pass
+    conv = [c for c in cands if getattr(c, "converged", True)]
+    pool = conv if conv else cands
+    return max(pool, key=lambda c: float(c.lnL))
+
+
 def _fit_six_worker(args):
     tree_str, areas, tip_dict, e_max = args
     geog = b.io.TipRanges(tuple(areas), {k: tuple(v) for k, v in tip_dict.items()})
@@ -267,25 +290,41 @@ def _fit_six_worker(args):
             t = t.with_parameters(j=dict(min=0.0, init=0.02))
         return t
 
-    fc0 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC"), likelihood_conditioning="legacy_unconditioned").fit()
-    fc1 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC+J"), likelihood_conditioning="legacy_unconditioned").fit()
-    fs0 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC"), include_null_range=False, likelihood_conditioning="legacy_unconditioned").fit()
-    fs1 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC+J"), include_null_range=False, likelihood_conditioning="legacy_unconditioned").fit()
-    fa0 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC"), likelihood_conditioning="tip_survival").fit()
-    fa1 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC+J"), likelihood_conditioning="tip_survival").fit()
+    fc0 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC"), likelihood_conditioning="legacy_unconditioned").fit(num_threads=1)
+    fc1 = _fit_nested_alt(
+        b.BioGeoBEARS(tree_str, geog, make_tpl("DEC+J"), likelihood_conditioning="legacy_unconditioned"),
+        fc0,
+    )
+    fs0 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC"), include_null_range=False, likelihood_conditioning="legacy_unconditioned").fit(num_threads=1)
+    fs1 = _fit_nested_alt(
+        b.BioGeoBEARS(tree_str, geog, make_tpl("DEC+J"), include_null_range=False, likelihood_conditioning="legacy_unconditioned"),
+        fs0,
+    )
+    fa0 = b.BioGeoBEARS(tree_str, geog, make_tpl("DEC"), likelihood_conditioning="tip_survival").fit(num_threads=1)
+    fa1 = _fit_nested_alt(
+        b.BioGeoBEARS(tree_str, geog, make_tpl("DEC+J"), likelihood_conditioning="tip_survival"),
+        fa0,
+    )
 
     single_frac = float(np.mean([len(s) == 1 for s in tip_dict.values()]))
+    raw_c = 2.0 * (fc1.lnL - fc0.lnL)
+    raw_s = 2.0 * (fs1.lnL - fs0.lnL)
+    raw_a = 2.0 * (fa1.lnL - fa0.lnL)
     return dict(
         single_area_tip_fraction=single_frac,
+        all_converged=bool(all(getattr(f, "converged", True) for f in (fc0, fc1, fs0, fs1, fa0, fa1))),
         d_C=float(fc0.params["d"]),
         e_C=float(fc0.params["e"]),
         d_DECstar=float(fs0.params["d"]),
         e_DECstar=float(fs0.params["e"]),
         d_A=float(fa0.params["d"]),
         e_A=float(fa0.params["e"]),
-        d_stat_C=max(0.0, 2.0 * (fc1.lnL - fc0.lnL)),
-        d_stat_DECstar=max(0.0, 2.0 * (fs1.lnL - fs0.lnL)),
-        d_stat_A=max(0.0, 2.0 * (fa1.lnL - fa0.lnL)),
+        d_raw_C=float(raw_c),
+        d_raw_DECstar=float(raw_s),
+        d_raw_A=float(raw_a),
+        d_stat_C=max(0.0, raw_c),
+        d_stat_DECstar=max(0.0, raw_s),
+        d_stat_A=max(0.0, raw_a),
         aicc_fp_C=bool(fc1.aicc < fc0.aicc),
         aicc_fp_DECstar=bool(fs1.aicc < fs0.aicc),
         aicc_fp_A=bool(fa1.aicc < fa0.aicc),
@@ -307,12 +346,14 @@ def _summarize_fit_rows(rows: list[dict], d_true: float, e_true: float, e_max: f
         e_vals = np.array([r[f"e_{tag}"] for r in rows], dtype=float)
         d_vals = np.array([r[f"d_{tag}"] for r in rows], dtype=float)
         d_stats = np.array([r[f"d_stat_{tag}"] for r in rows], dtype=float)
+        d_raws = np.array([r.get(f"d_raw_{tag}", r[f"d_stat_{tag}"]) for r in rows], dtype=float)
         uncens = e_vals < (e_max - 1e-4)
         e_uncens = e_vals[uncens] if np.any(uncens) else e_vals
         aicc_hits = int(sum(r[f"aicc_fp_{tag}"] for r in rows))
         chi2_hits = int(np.sum(d_stats > chi2_95))
         chibar_hits = int(np.sum(d_stats > chibar_95))
         cens_hits = int(np.sum(~uncens))
+        neg_hits = int(np.sum(d_raws < -1e-6))
         res[tag] = dict(
             e_median=float(np.median(e_vals)),
             e_iqr=[float(np.quantile(e_vals, 0.25)), float(np.quantile(e_vals, 0.75))],
@@ -327,6 +368,8 @@ def _summarize_fit_rows(rows: list[dict], d_true: float, e_true: float, e_max: f
             d_median=float(np.median(d_vals)),
             d_rmse_all=float(np.sqrt(np.mean((d_vals - d_true) ** 2))),
             d_stat_exact_zero_fraction=float(np.mean(d_stats < 1e-6)),
+            d_raw_negative_count=neg_hits,
+            d_raw_min=float(np.min(d_raws)),
             d_obs_median=float(np.median(d_stats)),
             d_obs_q90=float(np.quantile(d_stats, 0.90)),
             aicc_false_positive_rate=aicc_hits / n_reps,
@@ -336,6 +379,7 @@ def _summarize_fit_rows(rows: list[dict], d_true: float, e_true: float, e_max: f
             chibar_50_50_false_positive_rate=chibar_hits / n_reps,
             chibar_50_50_fp_cp95=cp95(chibar_hits, n_reps),
         )
+    res["all_converged_count"] = int(sum(r.get("all_converged", True) for r in rows))
     return res
 
 
@@ -357,11 +401,14 @@ def _strat_cal_worker(args):
         timeperiods=times, areas_allowed=allowed_rows,
         likelihood_conditioning="tip_survival",
     ).fit(num_threads=1)
-    f1 = b.BioGeoBEARS(
-        tree_str, geog, make_tpl("DEC+J"),
-        timeperiods=times, areas_allowed=allowed_rows,
-        likelihood_conditioning="tip_survival",
-    ).fit(num_threads=1)
+    f1 = _fit_nested_alt(
+        b.BioGeoBEARS(
+            tree_str, geog, make_tpl("DEC+J"),
+            timeperiods=times, areas_allowed=allowed_rows,
+            likelihood_conditioning="tip_survival",
+        ),
+        f0,
+    )
     prof = f0.profile_ci(params=["d", "e"], n_grid=12, num_threads=1)
     df_p = prof.to_dataframe().set_index("param")
 
@@ -422,11 +469,12 @@ def run_v3_1_simulations(workers: int = 32) -> dict:
             s1_extended[name] = _summarize_fit_rows(rows, d_true, e_true, 5.0)
 
         # 1b. Independent neutral birth-death + biogeographic extinction pruned trees (N=200 per regime)
+        # Non-overlapping seed ranges separated by 10,000 integers per regime
         bd_results = {}
         bd_regimes = [
-            ("bd_pruned_moderate_e008", 0.30, 0.03, 0.08, False, 20262001),
-            ("bd_pruned_high_e015", 0.35, 0.04, 0.15, False, 20262002),
-            ("decstar_truth_control_e010", 0.30, 0.03, 0.10, True, 20262003),
+            ("bd_pruned_moderate_e008", 0.30, 0.03, 0.08, False, 202620000),
+            ("bd_pruned_high_e015", 0.35, 0.04, 0.15, False, 202630000),
+            ("decstar_truth_control_e010", 0.30, 0.03, 0.10, True, 202640000),
         ]
         bd_areas = ["A", "B", "C", "D"]
         for rname, lam, d_true, e_true, forbid_single, base_seed in bd_regimes:
@@ -942,10 +990,18 @@ def _corpus_worker(args):
             return t
 
         fc0 = b.BioGeoBEARS(tree_p, geog_p, make_tpl("DEC"), likelihood_conditioning="legacy_unconditioned", **kw).fit(num_threads=1)
-        fc1 = b.BioGeoBEARS(tree_p, geog_p, make_tpl("DEC+J"), likelihood_conditioning="legacy_unconditioned", **kw).fit(num_threads=1)
+        fc1 = _fit_nested_alt(
+            b.BioGeoBEARS(tree_p, geog_p, make_tpl("DEC+J"), likelihood_conditioning="legacy_unconditioned", **kw),
+            fc0,
+        )
         fa0 = b.BioGeoBEARS(tree_p, geog_p, make_tpl("DEC"), likelihood_conditioning="tip_survival", **kw).fit(num_threads=1)
-        fa1 = b.BioGeoBEARS(tree_p, geog_p, make_tpl("DEC+J"), likelihood_conditioning="tip_survival", **kw).fit(num_threads=1)
+        fa1 = _fit_nested_alt(
+            b.BioGeoBEARS(tree_p, geog_p, make_tpl("DEC+J"), likelihood_conditioning="tip_survival", **kw),
+            fa0,
+        )
 
+        raw_d_c = 2.0 * (fc1.lnL - fc0.lnL)
+        raw_d_a = 2.0 * (fa1.lnL - fa0.lnL)
         return dict(
             screen=screen,
             status="fitted",
@@ -953,21 +1009,58 @@ def _corpus_worker(args):
             n_areas=n_areas,
             n_states=n_states,
             single_area_tip_fraction=single_frac,
+            all_converged=bool(all(getattr(f, "converged", True) for f in (fc0, fc1, fa0, fa1))),
+            lnL_C_dec=float(fc0.lnL),
+            lnL_C_decj=float(fc1.lnL),
+            lnL_A_dec=float(fa0.lnL),
+            lnL_A_decj=float(fa1.lnL),
+            aicc_C_dec=float(fc0.aicc),
+            aicc_C_decj=float(fc1.aicc),
+            aicc_A_dec=float(fa0.aicc),
+            aicc_A_decj=float(fa1.aicc),
+            d_C_dec=float(fc0.params["d"]),
             e_C_dec=float(fc0.params["e"]),
             e_C_decj=float(fc1.params["e"]),
+            j_C_decj=float(fc1.params["j"]),
+            d_A_dec=float(fa0.params["d"]),
             e_A_dec=float(fa0.params["e"]),
             e_A_decj=float(fa1.params["e"]),
+            j_A_decj=float(fa1.params["j"]),
             log_surv_A_dec=float(fa0.log_tip_survival_prob),
             log_surv_A_decj=float(fa1.log_tip_survival_prob),
             aicc_plusj_preferred_C=bool(fc1.aicc < fc0.aicc),
             aicc_plusj_preferred_A=bool(fa1.aicc < fa0.aicc),
-            d_lrt_C=max(0.0, 2.0 * (fc1.lnL - fc0.lnL)),
-            d_lrt_A=max(0.0, 2.0 * (fa1.lnL - fa0.lnL)),
+            d_raw_C=float(raw_d_c),
+            d_raw_A=float(raw_d_a),
+            d_lrt_C=max(0.0, raw_d_c),
+            d_lrt_A=max(0.0, raw_d_a),
         )
     except Exception as exc:
+        geom_category = "malformed_geography_or_alignment"
+        min_bl = None
+        max_tip_age = None
+        try:
+            tr_obj = b.io.read_newick(tree_p.read_text())
+            edge_lens = [float(x) for i, x in enumerate(tr_obj.lengths) if i != tr_obj.root]
+            min_bl = float(min(edge_lens)) if edge_lens else 0.0
+            tip_ages = [float(tr_obj.ages[i]) for i in range(tr_obj.tip_count)]
+            max_tip_age = float(max(tip_ages)) if tip_ages else 0.0
+            msg_s = str(exc)
+            if "minimum" in msg_s or (min_bl is not None and min_bl < 1e-6):
+                geom_category = "short_or_zero_branch_below_1e-6"
+            elif "fossil" in msg_s or (max_tip_age is not None and max_tip_age > 1e-4):
+                if max_tip_age is not None and max_tip_age >= 1.0:
+                    geom_category = "non_contemporaneous_fossil_tips_ge_1Ma"
+                else:
+                    geom_category = "non_ultrametric_tip_offset_lt_1Ma"
+        except Exception:
+            pass
         return dict(
             screen=screen,
             status="rejected_or_unsupported",
+            rejection_category=geom_category,
+            min_branch_length=min_bl,
+            max_tip_age_offset=max_tip_age,
             error_type=type(exc).__name__,
             error_msg=str(exc)[:240],
         )
@@ -1010,27 +1103,51 @@ def run_v3_3_empirical_corpus_census(m8_dir: Path, workers: int = 32) -> dict:
     zero_a_dec = e_a_dec < 1e-5
     zero_c_dec = e_c_dec < 1e-5
 
+    cat_counts: dict[str, int] = {}
+    for r in rejected:
+        cat = r.get("rejection_category", "other")
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
     return dict(
         total_archival_studies=len(by_screen),
-        invalid_upstream_inputs=len(invalid_screens),
+        upstream_timeout_skipped_studies=len(invalid_screens),
+        upstream_timeout_skipped_screens=invalid_screens,
         evaluated_valid_studies=len(rep_tasks),
         fitted_under_tip_survival=n_fit,
+        all_converged_studies=int(sum(r.get("all_converged", True) for r in fitted)),
         skipped_over_512_states=len(skipped_large),
+        skipped_over_512_screens=[{"screen": r["screen"], "n_states": r["n_states"]} for r in skipped_large],
         explicitly_rejected_studies=len(rejected),
-        rejection_reasons=[{"screen": r["screen"], "error_type": r["error_type"], "msg": r["error_msg"]} for r in rejected],
+        rejection_category_counts=cat_counts,
+        rejection_reasons=[
+            {
+                "screen": r["screen"],
+                "category": r.get("rejection_category"),
+                "min_branch_length": r.get("min_branch_length"),
+                "max_tip_age_offset": r.get("max_tip_age_offset"),
+                "error_type": r["error_type"],
+                "msg": r["error_msg"],
+            }
+            for r in rejected
+        ],
         dec_extinction_summary=dict(
             legacy_zero_fraction=float(np.mean(zero_c_dec)),
             legacy_zero_count=int(np.sum(zero_c_dec)),
             legacy_median_e=float(np.median(e_c_dec)),
             tip_survival_zero_fraction=float(np.mean(zero_a_dec)),
             tip_survival_zero_count=int(np.sum(zero_a_dec)),
-            tip_survival_interior_fraction=float(np.mean((~zero_a_dec) & (~cens_dec_mask))),
-            tip_survival_interior_count=int(np.sum((~zero_a_dec) & (~cens_dec_mask))),
+            tip_survival_interior_nonzero_fraction=float(np.mean((~zero_a_dec) & (~cens_dec_mask))),
+            tip_survival_interior_nonzero_count=int(np.sum((~zero_a_dec) & (~cens_dec_mask))),
+            tip_survival_non_upper_bound_fraction=float(np.mean(~cens_dec_mask)),
+            tip_survival_non_upper_bound_count=int(np.sum(~cens_dec_mask)),
             tip_survival_upper_censored_fraction=float(np.mean(cens_dec_mask)),
             tip_survival_upper_censored_count=int(np.sum(cens_dec_mask)),
             tip_survival_median_e_all=float(np.median(e_a_dec)),
             tip_survival_median_e_interior=float(np.median(e_a_dec[(~zero_a_dec) & (~cens_dec_mask)])) if np.any((~zero_a_dec) & (~cens_dec_mask)) else None,
             single_area_fraction_median_when_censored=float(np.median(sf[cens_dec_mask])) if np.any(cens_dec_mask) else None,
+            single_area_fraction_min_when_censored=float(np.min(sf[cens_dec_mask])) if np.any(cens_dec_mask) else None,
+            single_area_fraction_max_when_censored=float(np.max(sf[cens_dec_mask])) if np.any(cens_dec_mask) else None,
+            single_area_fraction_values_when_censored=[float(x) for x in sorted(sf[cens_dec_mask])] if np.any(cens_dec_mask) else [],
             single_area_fraction_median_when_uncensored=float(np.median(sf[~cens_dec_mask])) if np.any(~cens_dec_mask) else None,
         ),
         decj_extinction_summary=dict(
@@ -1042,6 +1159,10 @@ def run_v3_3_empirical_corpus_census(m8_dir: Path, workers: int = 32) -> dict:
             legacy_aicc_prefers_decj_fraction=float(np.mean([r["aicc_plusj_preferred_C"] for r in fitted])),
             tip_survival_aicc_prefers_decj_count=int(sum(r["aicc_plusj_preferred_A"] for r in fitted)),
             tip_survival_aicc_prefers_decj_fraction=float(np.mean([r["aicc_plusj_preferred_A"] for r in fitted])),
+            negative_raw_d_count_legacy=int(sum(r["d_raw_C"] < -1e-6 for r in fitted)),
+            negative_raw_d_count_tip_survival=int(sum(r["d_raw_A"] < -1e-6 for r in fitted)),
+            min_raw_d_legacy=float(min(r["d_raw_C"] for r in fitted)),
+            min_raw_d_tip_survival=float(min(r["d_raw_A"] for r in fitted)),
             median_lrt_D_legacy=float(np.median([r["d_lrt_C"] for r in fitted])),
             median_lrt_D_tip_survival=float(np.median([r["d_lrt_A"] for r in fitted])),
         ),

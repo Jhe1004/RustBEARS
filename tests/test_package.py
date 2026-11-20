@@ -14,7 +14,7 @@ GEOG = {"A": "10", "B": "10", "C": "01"}
 
 class PackageTests(unittest.TestCase):
     def test_alias_module_parity(self):
-        self.assertEqual(b.__version__, "1.2.0.dev0")
+        self.assertEqual(b.__version__, "1.2.0")
         self.assertIs(b.RustBEARS, b.BioGeoBEARS)
 
     def test_tree_order_and_fossil(self):
@@ -138,6 +138,21 @@ class PackageTests(unittest.TestCase):
         self.assertTrue(result.converged)
         self.assertEqual(result.aic, 2 * result.n_params - 2 * result.lnL)
         self.assertEqual(b.compare_models([result]).loc[0, "AICweight"], 1)
+
+    def test_cli_tip_survival(self):
+        from rustbears.__main__ import _run_cli
+        with tempfile.TemporaryDirectory() as tmp:
+            tp = Path(tmp)
+            (tp / "t.nwk").write_text(TREE)
+            (tp / "g.data").write_text("3 2 (X Y)\nA 10\nB 10\nC 01\n")
+            out = tp / "out"
+            _run_cli([
+                "fit", "--tree", str(tp / "t.nwk"), "--geog", str(tp / "g.data"),
+                "--models", "DEC,DEC+J", "--likelihood-conditioning", "tip_survival",
+                "--maps", "10", "--out-dir", str(out),
+            ])
+            self.assertTrue((out / "model-comparison.csv").exists())
+            self.assertTrue((out / "DEC" / "events.pdf").exists())
 
 
 if __name__ == "__main__":

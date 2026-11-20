@@ -46,7 +46,7 @@ plot_simDEC_DECJ_inferences <- function(simdir=NULL, sim_params_Rdata_table="/si
 
 
 	# Get the parameters for this run
-	load(file="/simdata/BGB/dej_params.Rdata")
+	load(file=sim_params_Rdata_table)
 	nums = 1:nrow(dej_params)
 	dej_params = cbind(nums, dej_params)
 	dim(dej_params)
@@ -129,7 +129,7 @@ plot_simDEC_DECJ_inferences <- function(simdir=NULL, sim_params_Rdata_table="/si
 	if (makePDFs==TRUE)
 		{
 		dev.off()
-		if (openPDFs==TRUE)
+		if (openPDFs==TRUE && interactive())
 			{
 			cmdstr = paste("open ", pdffn, sep="")
 			system(cmdstr)
@@ -613,7 +613,7 @@ if(plot_inputs$doPDF == TRUE)
 	{
 	dev.off()
 	cmdstr = paste("open ", pdffn, sep="")
-	system(cmdstr)
+	if (interactive()) system(cmdstr) else invisible(0L)
 	}
 
 
@@ -987,7 +987,7 @@ if(plot_inputs$doPDF == TRUE)
 	{
 	dev.off()
 	cmdstr = paste("open ", pdffn, sep="")
-	system(cmdstr)
+	if (interactive()) system(cmdstr) else invisible(0L)
 	}
 
 
@@ -1820,7 +1820,7 @@ if(plot_inputs$doPDF == TRUE)
 	{
 	dev.off()
 	cmdstr = paste("open ", pdffn, sep="")
-	system(cmdstr)
+	if (interactive()) system(cmdstr) else invisible(0L)
 	}
 
 

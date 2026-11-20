@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "bgb-bsm"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "bgb-numerics",
  "rayon",
@@ -12,18 +12,18 @@ dependencies = [
 
 [[package]]
 name = "bgb-clado"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "bgb-core",
 ]
 
 [[package]]
 name = "bgb-core"
-version = "1.1.4"
+version = "1.2.0"
 
 [[package]]
 name = "bgb-ffi"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "bgb-bsm",
  "bgb-clado",
@@ -34,14 +34,14 @@ dependencies = [
 
 [[package]]
 name = "bgb-numerics"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "bgb-core",
 ]
 
 [[package]]
 name = "bgb-step"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "bgb-clado",
  "bgb-core",

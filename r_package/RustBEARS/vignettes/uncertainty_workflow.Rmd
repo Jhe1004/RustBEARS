@@ -1,89 +1,96 @@
 ---
-title: "Explicit probability contracts and uncertainty workflows"
+title: "Survival-Conditioned Likelihoods and Uncertainty Workflows in RustBEARS"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Explicit probability contracts and uncertainty workflows}
+  %\VignetteIndexEntry{Survival-Conditioned Likelihoods and Uncertainty Workflows in RustBEARS}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
-The v1.2 workflows describe conditional inference under an explicitly selected
-probability law. They do not turn a historical likelihood score into a normalized
-sampling model, or an external tree sample into a joint Bayesian analysis.
+`RustBEARS` provides drop-in compatibility with `BioGeoBEARS` (all 545 R exports retained) alongside exact extant tip-survival conditioning, endpoint-conditioned Uniformization stochastic mapping, and five frequentist uncertainty quantification tools.
 
-## Fit and inspect one contract
+## 1. Fitting Survival-Conditioned DEC and DEC+J Models
 
-The following uses the bundled 19-tip Hawaiian *Psychotria* example. The code is
-shown without automatically running a costly analysis during documentation builds.
+The example below uses the bundled 19-tip Hawaiian *Psychotria* dataset:
 
 ```{r fit, eval=FALSE}
 library(RustBEARS)
+
 run <- define_BioGeoBEARS_run(
-  trfn=system.file('extdata/Psychotria_5.2_ultrametric.newick', package='RustBEARS'),
-  geogfn=system.file('extdata/Psychotria_geog.data', package='RustBEARS'),
-  max_range_size=4, calc_ancprobs=TRUE, print_optim=FALSE)
-run$likelihood_conditioning <- 'tip_survival'
-run$root_prior <- define_root_prior('uniform_nonnull')
+  trfn = system.file("extdata/Psychotria_5.2_ultrametric.newick", package = "RustBEARS"),
+  geogfn = system.file("extdata/Psychotria_geog.data", package = "RustBEARS"),
+  max_range_size = 4,
+  calc_ancprobs = TRUE,
+  print_optim = FALSE
+)
+
+# Enable extant tip-survival conditioning with a normalized uniform non-null root prior
+run$likelihood_conditioning <- "tip_survival"
+run$root_prior <- define_root_prior("uniform_nonnull")
 run$num_cores_to_use <- 1L
 run <- readfiles_BioGeoBEARS_run(run)
+
 dec <- bears_optim_run(run)
+
 runj <- run
-runj$BioGeoBEARS_model_object@params_table['j','type'] <- 'free'
-runj$BioGeoBEARS_model_object@params_table['j',c('init','est')] <- .01
+runj$BioGeoBEARS_model_object@params_table["j", "type"] <- "free"
+runj$BioGeoBEARS_model_object@params_table["j", c("init", "est")] <- 0.01
 decj <- bears_optim_run(runj)
 ```
 
-`tip_survival` is Contract A. Contract B, `unconditional_complete`, permits empty
-tips and needs `allow_null_tips=TRUE`. Contract C, `legacy_unconditioned`, retains
-the old score and root-weight scale. R defaults to StrictF64; request LegacyF32
-explicitly for historical comparisons. Prepared samplers reject changed input files.
+Three likelihood formulations are available:
+- `"legacy_unconditioned"` (default for backward compatibility): retains the historical unconditioned `BioGeoBEARS` score.
+- `"tip_survival"`: conditions observed extant tip ranges on every sampled tip surviving to the present with a non-empty range.
+- `"unconditional_complete"`: completes null-to-null cladogenetic transmission over all $S^N$ outcomes (requires `run$allow_null_tips <- TRUE`).
 
-## Profiles, bootstrap and model averaging
+By default, `RustBEARS` uses 64-bit IEEE-754 double precision (`StrictF64`). To emulate historical 32-bit mixed-precision rounding points, set `options(RustBEARS.precision = "LegacyF32")`.
+
+## 2. Profile Intervals, Parametric Bootstrap LRT, and Model Averaging
 
 ```{r inference, eval=FALSE}
-intervals <- profile_ci(dec, params='e', include_onesided_zero_ref=TRUE)
-test <- bootstrap_lrt(dec, decj, n_boot=399L,
-                      checkpoint_file='psychotria-bootstrap.rds', seedval=42L)
-test$pval_failure_bounds
-test$pval_mc_ci95
-average <- model_average(list(dec, decj), num_maps=500L, seedval=42L)
+# Profile likelihood confidence intervals (handles boundary optima and flags flat upper ridges)
+intervals <- profile_ci(dec, params = c("d", "e"))
+print(intervals)
+
+# Parametric bootstrap likelihood-ratio test with resumable checkpointing
+test <- bootstrap_lrt(
+  dec, decj,
+  n_boot = 199L,
+  checkpoint_file = "psychotria-bootstrap.rds",
+  seedval = 42L
+)
+print(test)
+
+# Akaike model-averaged ancestral probabilities and stochastic maps
+average <- model_average(list(DEC = dec, DECJ = decj), criterion = "AICc", num_maps = 500L, seedval = 42L)
 ```
 
-Profiles reoptimize nuisance parameters, expose zero/box boundary statuses and
-refuse numerically uncertified endpoints. Contract C returns support intervals.
-Bootstrap failures remain in the planned denominator. Failure bounds and Monte
-Carlo intervals answer different questions. A fixed-null-threshold power
-surrogate is separate from fully nested test power. Akaike weights use fitted
-parameters; they are not Bayesian model probabilities. AICc uses tip count as
-its stated sample-size convention and may be undefined for very small trees.
-
-## External trees and mapping precision
+## 3. Uniformization Stochastic Mapping and Posterior Tree Propagation
 
 ```{r trees, eval=FALSE}
-multiple <- fit_over_trees(run, 'external-posterior.trees',
-  models=c('DEC','DEC+J'), likelihood_conditioning='tip_survival',
-  checkpoint_file='tree-fits.rds', bsm_maps_per_tree=500L)
-maps <- runBSM(dec, NULL, bsm_engine='native_whole_tree', seedval=42L,
-  target_rmcse=.05, min_maps=200L, batch_size=200L, max_maps=5000L)
-precision <- bsm_diagnostics(maps, tree_target='fixed_sample')
+# Fast endpoint-conditioned Uniformization stochastic mapping
+maps <- runBSM(
+  dec, NULL,
+  bsm_engine = "native_whole_tree",
+  seedval = 42L,
+  target_rmcse = 0.05,
+  min_maps = 200L,
+  batch_size = 200L,
+  max_maps = 2000L
+)
+precision <- bsm_diagnostics(maps, tree_target = "fixed_sample")
+
+# Propagate parameter, model, and topological uncertainty across posterior trees
+multiple <- fit_over_trees(
+  run,
+  trees = "posterior_trees.newick",
+  models = c("DEC", "DEC+J"),
+  likelihood_conditioning = "tip_survival",
+  bsm_maps_per_tree = 200L,
+  checkpoint_file = "tree-fits.rds"
+)
 ```
 
-Every tree needs the complete model set. Failed trees are isolated, with
-complete-case means and deterministic probability missing-fit bounds. Event
-counts are unbounded and cannot use those same bounds. Exact-clade and MRCA
-summaries differ; MRCA results include excess-tip counts. Root incoming-branch
-probabilities remain undefined.
+## Supported Scope
 
-Mapping precision defaults to the fixed supplied tree sample. A population
-target requires explicit independent or ordered-MCMC provenance. Route decisions
-use paired differences: near ties require the whole interval inside the practical
-equivalence band; resolved differences require it wholly outside on one side.
-The intervals are exploratory per-comparison intervals without simultaneous,
-rank-selection or optional-stopping coverage guarantees. Rare events are marked
-not assessed. Stop reasons are reported independently.
-
-The initial uncertainty scope is single-layer standard DEC, DIVALIKE and
-BAYAREALIKE families with/without J and validated x/w modifiers. Fossil hooks,
-time stratification and trait coupling remain explicitly disabled in these new
-workflows. Full reproducible R and Python examples, in Chinese and English,
-are provided in the repository's `docs` directory.
+`tip_survival` and the uncertainty modules support DEC, DIVALIKE, BAYAREALIKE, and `+J` models, spatial/environmental/area modifiers (`+x`, `+n`, `+w`, `+u`, `areas_adjacency`), and multi-stratum time slicing (`timeperiods`) with chronologically monotone area emergence (`areas_allowed`). Fossil tips, non-monotone submergence masks, and trait-coupled models remain available under `"legacy_unconditioned"`.
