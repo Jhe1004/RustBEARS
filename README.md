@@ -18,7 +18,7 @@
 
 1. **Drop-In BioGeoBEARS Compatibility & High Speed**
    - Retains all **545 public R functions, S4 classes, and plotting utilities** of [`BioGeoBEARS`](http://phylo.wikidot.com/biogeobears) (Matzke 2013, 2014)—existing R scripts run unchanged simply by replacing `library(BioGeoBEARS)` with `library(RustBEARS)`.
-   - Reproduces `BioGeoBEARS` log-likelihoods (`median |ΔlnL| = 9.95e-14`) and ancestral probabilities (`<= 1.50e-14`) across 1,339 configurations from 77 published studies, while accelerating 64- to 256-state optimization **2.8–17.3×** on 1 core and **10.9–205.5×** on 8 cores.
+   - Reproduces `BioGeoBEARS` log-likelihoods (`median |ΔlnL| = 9.95e-14`) and ancestral probabilities (`<= 1.50e-14`) across 1,339 configurations from 77 published studies, while accelerating 64- to 256-state optimization **2.8–17.3×** on 1 core and **4.1–36.1×** on 8 cores over the fastest `BioGeoBEARS` setting (**10.9–205.5×** in strict 8-vs-8 core runs).
 2. **Extant Tip-Survival-Conditioned Likelihoods**
    - Corrects the unconditioned null-range survivorship bias that drives DEC local extinction estimates toward zero and inflates support for founder-event speciation (`+J`), across both unstratified phylogenies and multi-stratum models with chronologically emerging islands.
 3. **Trial-Free Uniformization Stochastic Mapping**
