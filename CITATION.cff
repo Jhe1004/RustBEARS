@@ -16,6 +16,25 @@ authors:
     email: "j.he930724@gmail.com"
   - family-names: "Matzke"
     given-names: "Nicholas J."
+preferred-citation:
+  type: article
+  title: "RustBEARS: Survival-Conditioned Likelihoods, Uniformization Stochastic Mapping, and Uncertainty Quantification for Historical Biogeography"
+  authors:
+    - family-names: "He"
+      given-names: "Jian"
+      orcid: "https://orcid.org/0000-0002-5020-5608"
+    - family-names: "Chen"
+      given-names: "Jingjing"
+    - family-names: "Chen"
+      given-names: "Wanting"
+      orcid: "https://orcid.org/0009-0007-1809-2643"
+    - family-names: "Xie"
+      given-names: "Lei"
+      orcid: "https://orcid.org/0000-0001-7181-9222"
+  journal: "bioRxiv"
+  year: 2026
+  doi: "10.64898/2026.11.20.768172"
+  url: "https://doi.org/10.64898/2026.11.20.768172"
 references:
   - type: article
     title: "Probabilistic historical biogeography: new models for founder-event speciation, imperfect detection, and fossils allow improved accuracy and model-testing"

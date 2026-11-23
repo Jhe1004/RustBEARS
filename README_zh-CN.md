@@ -6,6 +6,7 @@
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/Release-v1.2.0-success.svg)](CHANGELOG.md)
+[![bioRxiv](https://img.shields.io/badge/bioRxiv-10.64898%2F2026.11.20.768172-b31b1b.svg)](https://doi.org/10.64898/2026.11.20.768172)
 [![Rust Core](https://img.shields.io/badge/Rust-1.82%2B-orange.svg)](rust/Cargo.toml)
 [![R Package](https://img.shields.io/badge/R-4.0%2B-276DC3.svg)](r_package/RustBEARS/DESCRIPTION)
 [![Python Package](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](pyproject.toml)
@@ -231,6 +232,18 @@ rustbears fit \
 
 - Matzke, N. J. (2013). Probabilistic historical biogeography: new models for founder-event speciation, imperfect detection, and fossils allow improved accuracy and model-testing. *Frontiers of Biogeography*, 5(4), 242–248. https://doi.org/10.21425/F5FBG19694
 - Matzke, N. J. (2014). Model selection in historical biogeography reveals that founder-event speciation is a crucial process in island clades. *Systematic Biology*, 63(6), 951–970. https://doi.org/10.1093/sysbio/syu056
-- He, J. (2026). RustBEARS: Survival-conditioned likelihoods, Uniformization stochastic mapping, and uncertainty quantification for historical biogeography (v1.2.0). https://github.com/Jhe1004/RustBEARS
+- He, J., Chen, J., Chen, W., & Xie, L. (2026). RustBEARS: Survival-Conditioned Likelihoods, Uniformization Stochastic Mapping, and Uncertainty Quantification for Historical Biogeography. *bioRxiv*, 2026.11.20.768172. https://doi.org/10.64898/2026.11.20.768172
+
+```bibtex
+@article{he2026rustbears,
+  author  = {He, Jian and Chen, Jingjing and Chen, Wanting and Xie, Lei},
+  title   = {{RustBEARS}: Survival-Conditioned Likelihoods, Uniformization Stochastic Mapping, and Uncertainty Quantification for Historical Biogeography},
+  journal = {bioRxiv},
+  year    = {2026},
+  elocation-id = {2026.11.20.768172},
+  doi     = {10.64898/2026.11.20.768172},
+  url     = {https://doi.org/10.64898/2026.11.20.768172}
+}
+```
 
 如遇安装、编译或运行问题，欢迎在 [GitHub Issues](https://github.com/Jhe1004/RustBEARS/issues) 提交反馈。
